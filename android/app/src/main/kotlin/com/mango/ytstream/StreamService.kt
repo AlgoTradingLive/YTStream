@@ -17,14 +17,13 @@ import android.media.MediaFormat
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
-import java.io.IOException
-import java.io.OutputStream
-import java.net.Socket
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -41,10 +40,8 @@ class StreamService : Service() {
     private var audioRecord: AudioRecord? = null
     private var videoEncoder: MediaCodec? = null
     private var audioEncoder: MediaCodec? = null
-
     private val isRunning = AtomicBoolean(false)
     private var rtmpSender: RtmpSender? = null
-
     private var screenWidth = 1280
     private var screenHeight = 720
     private var screenDensity = 1
@@ -74,18 +71,27 @@ class StreamService : Service() {
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")
         wm.defaultDisplay.getMetrics(metrics)
-        screenWidth = (metrics.widthPixels / 2) * 2  // ensure even
+        screenWidth = (metrics.widthPixels / 2) * 2
         screenHeight = (metrics.heightPixels / 2) * 2
         screenDensity = metrics.densityDpi
 
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = manager.getMediaProjection(resultCode, data)
 
+        // Android 14+ requires callback registered before use
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            mediaProjection!!.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    stopStreaming()
+                }
+            }, Handler(Looper.getMainLooper()))
+        }
+
         Thread {
             try {
                 startStreaming("$rtmpUrl/$streamKey")
             } catch (e: Exception) {
-                mainActivity?.notifyFlutter("onStreamError", e.message)
+                mainActivity?.notifyFlutter("onStreamError", e.message ?: "Unknown error")
                 stopSelf()
             }
         }.start()
@@ -97,17 +103,12 @@ class StreamService : Service() {
     private fun startStreaming(fullRtmpUrl: String) {
         isRunning.set(true)
 
-        // Setup RTMP sender
         rtmpSender = RtmpSender(fullRtmpUrl, screenWidth, screenHeight)
         rtmpSender!!.connect()
 
-        // Setup video encoder
         setupVideoEncoder()
-
-        // Setup audio encoder + capture
         setupAudioEncoder()
 
-        // Create virtual display for screen capture
         virtualDisplay = mediaProjection!!.createVirtualDisplay(
             "YTStream",
             screenWidth, screenHeight, screenDensity,
@@ -122,12 +123,10 @@ class StreamService : Service() {
 
         mainActivity?.notifyFlutter("onStreamStarted")
 
-        // Start encoding threads
         val videoThread = Thread { encodeVideo() }
         val audioThread = Thread { encodeAudio() }
         videoThread.start()
         audioThread.start()
-
         videoThread.join()
         audioThread.join()
 
@@ -137,7 +136,7 @@ class StreamService : Service() {
     private fun setupVideoEncoder() {
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, screenWidth, screenHeight).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, 2_500_000) // 2.5 Mbps
+            setInteger(MediaFormat.KEY_BIT_RATE, 2_500_000)
             setInteger(MediaFormat.KEY_FRAME_RATE, 30)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
         }
@@ -152,7 +151,6 @@ class StreamService : Service() {
         val audioFormat = AudioFormat.ENCODING_PCM_16BIT
         val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat) * 2
 
-        // Capture internal audio (Android 10+)
         val config = AudioPlaybackCaptureConfiguration.Builder(mediaProjection!!)
             .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
             .addMatchingUsage(AudioAttributes.USAGE_GAME)
@@ -171,7 +169,6 @@ class StreamService : Service() {
             .setAudioPlaybackCaptureConfig(config)
             .build()
 
-        // AAC encoder
         val audioEncFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, 2).apply {
             setInteger(MediaFormat.KEY_BIT_RATE, 128_000)
             setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
@@ -204,7 +201,6 @@ class StreamService : Service() {
         val pcmBuffer = ByteArray(inputSize)
 
         while (isRunning.get()) {
-            // Feed PCM to audio encoder
             val inputIndex = audioEncoder!!.dequeueInputBuffer(10_000)
             if (inputIndex >= 0) {
                 val read = audioRecord!!.read(pcmBuffer, 0, pcmBuffer.size)
@@ -215,8 +211,6 @@ class StreamService : Service() {
                     audioEncoder!!.queueInputBuffer(inputIndex, 0, read, System.nanoTime() / 1000, 0)
                 }
             }
-
-            // Get encoded audio
             val outputIndex = audioEncoder!!.dequeueOutputBuffer(bufferInfo, 10_000)
             if (outputIndex >= 0) {
                 val buffer = audioEncoder!!.getOutputBuffer(outputIndex) ?: continue
