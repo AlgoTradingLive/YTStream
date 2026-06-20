@@ -21,7 +21,6 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel!!.setMethodCallHandler { call, result ->
             when (call.method) {
@@ -64,7 +63,7 @@ class MainActivity : FlutterActivity() {
                 }
                 pendingResult?.success(null)
             } else {
-                pendingResult?.error("CANCELLED", "Screen capture permission denied", null)
+                pendingResult?.error("CANCELLED", "Permission denied", null)
                 methodChannel?.invokeMethod("onStreamError", "Permission denied")
             }
             pendingResult = null
@@ -72,16 +71,12 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun stopStreamService() {
-        val intent = Intent(this, StreamService::class.java).apply {
-            action = "STOP"
-        }
+        val intent = Intent(this, StreamService::class.java).apply { action = "STOP" }
         startService(intent)
     }
 
     fun notifyFlutter(method: String, args: Any? = null) {
-        runOnUiThread {
-            methodChannel?.invokeMethod(method, args)
-        }
+        runOnUiThread { methodChannel?.invokeMethod(method, args) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
