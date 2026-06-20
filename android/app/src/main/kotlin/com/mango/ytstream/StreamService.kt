@@ -5,27 +5,17 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
-import android.hardware.display.DisplayManager
-import android.hardware.display.VirtualDisplay
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioPlaybackCaptureConfiguration
-import android.media.AudioRecord
-import android.media.MediaCodec
-import android.media.MediaCodecInfo
-import android.media.MediaFormat
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.util.DisplayMetrics
-import android.view.WindowManager
-import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
-import java.nio.ByteBuffer
-import java.util.concurrent.atomic.AtomicBoolean
+import com.pedro.encoder.input.gl.render.filters.NoFilterRender
+import com.pedro.library.rtmp.RtmpStream
+import com.pedro.library.util.sources.audio.InternalAudioSource
+import com.pedro.library.util.sources.video.ScreenSource
 
 class StreamService : Service() {
 
@@ -35,16 +25,7 @@ class StreamService : Service() {
         const val NOTIF_ID = 1
     }
 
-    private var mediaProjection: MediaProjection? = null
-    private var virtualDisplay: VirtualDisplay? = null
-    private var audioRecord: AudioRecord? = null
-    private var videoEncoder: MediaCodec? = null
-    private var audioEncoder: MediaCodec? = null
-    private val isRunning = AtomicBoolean(false)
-    private var rtmpSender: RtmpSender? = null
-    private var screenWidth = 1280
-    private var screenHeight = 720
-    private var screenDensity = 1
+    private var rtmpStream: RtmpStream? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -53,7 +34,6 @@ class StreamService : Service() {
         createNotificationChannel()
     }
 
-    @RequiresApi(Build.VERSION_CODES.Q)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "STOP") {
             stopStreaming()
@@ -67,31 +47,41 @@ class StreamService : Service() {
 
         startForeground(NOTIF_ID, buildNotification())
 
-        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        wm.defaultDisplay.getMetrics(metrics)
-        screenWidth = (metrics.widthPixels / 2) * 2
-        screenHeight = (metrics.heightPixels / 2) * 2
-        screenDensity = metrics.densityDpi
-
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjection = manager.getMediaProjection(resultCode, data)
+        val mediaProjection = manager.getMediaProjection(resultCode, data)
 
-        // Android 14+ requires callback registered before use
+        // Register callback for Android 14+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            mediaProjection!!.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() {
-                    stopStreaming()
-                }
+            mediaProjection.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() { stopStreaming() }
             }, Handler(Looper.getMainLooper()))
         }
 
         Thread {
             try {
-                startStreaming("$rtmpUrl/$streamKey")
+                // RootEncoder handles screen + internal audio + RTMP
+                val screenSource = ScreenSource(applicationContext, mediaProjection)
+                val audioSource = InternalAudioSource(mediaProjection)
+
+                rtmpStream = RtmpStream(applicationContext, audioSource, screenSource)
+
+                rtmpStream!!.prepareVideo(
+                    width = 1280,
+                    height = 720,
+                    fps = 30,
+                    bitrate = 2_500_000
+                )
+                rtmpStream!!.prepareAudio(
+                    sampleRate = 44100,
+                    isStereo = true,
+                    bitrate = 128_000
+                )
+
+                rtmpStream!!.startStream("$rtmpUrl/$streamKey")
+                mainActivity?.notifyFlutter("onStreamStarted")
+
             } catch (e: Exception) {
-                mainActivity?.notifyFlutter("onStreamError", e.message ?: "Unknown error")
+                mainActivity?.notifyFlutter("onStreamError", e.message ?: "Stream error")
                 stopSelf()
             }
         }.start()
@@ -99,139 +89,13 @@ class StreamService : Service() {
         return START_NOT_STICKY
     }
 
-    @RequiresApi(Build.VERSION_CODES.Q)
-    private fun startStreaming(fullRtmpUrl: String) {
-        isRunning.set(true)
-
-        rtmpSender = RtmpSender(fullRtmpUrl, screenWidth, screenHeight)
-        rtmpSender!!.connect()
-
-        setupVideoEncoder()
-        setupAudioEncoder()
-
-        virtualDisplay = mediaProjection!!.createVirtualDisplay(
-            "YTStream",
-            screenWidth, screenHeight, screenDensity,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            videoEncoder!!.createInputSurface(),
-            null, null
-        )
-
-        videoEncoder!!.start()
-        audioEncoder!!.start()
-        audioRecord!!.startRecording()
-
-        mainActivity?.notifyFlutter("onStreamStarted")
-
-        val videoThread = Thread { encodeVideo() }
-        val audioThread = Thread { encodeAudio() }
-        videoThread.start()
-        audioThread.start()
-        videoThread.join()
-        audioThread.join()
-
-        mainActivity?.notifyFlutter("onStreamStopped")
-    }
-
-    private fun setupVideoEncoder() {
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, screenWidth, screenHeight).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, 2_500_000)
-            setInteger(MediaFormat.KEY_FRAME_RATE, 30)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
-        }
-        videoEncoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-        videoEncoder!!.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-    }
-
-    @RequiresApi(Build.VERSION_CODES.Q)
-    private fun setupAudioEncoder() {
-        val sampleRate = 44100
-        val channelConfig = AudioFormat.CHANNEL_IN_STEREO
-        val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-        val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat) * 2
-
-        val config = AudioPlaybackCaptureConfiguration.Builder(mediaProjection!!)
-            .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
-            .addMatchingUsage(AudioAttributes.USAGE_GAME)
-            .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
-            .build()
-
-        audioRecord = AudioRecord.Builder()
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(audioFormat)
-                    .setSampleRate(sampleRate)
-                    .setChannelMask(channelConfig)
-                    .build()
-            )
-            .setBufferSizeInBytes(bufferSize)
-            .setAudioPlaybackCaptureConfig(config)
-            .build()
-
-        val audioEncFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, 2).apply {
-            setInteger(MediaFormat.KEY_BIT_RATE, 128_000)
-            setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
-            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, bufferSize)
-        }
-        audioEncoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
-        audioEncoder!!.configure(audioEncFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-    }
-
-    private fun encodeVideo() {
-        val bufferInfo = MediaCodec.BufferInfo()
-        while (isRunning.get()) {
-            val outputIndex = videoEncoder!!.dequeueOutputBuffer(bufferInfo, 10_000)
-            if (outputIndex >= 0) {
-                val buffer = videoEncoder!!.getOutputBuffer(outputIndex) ?: continue
-                val isKeyFrame = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
-                rtmpSender?.sendVideo(buffer, bufferInfo, isKeyFrame)
-                videoEncoder!!.releaseOutputBuffer(outputIndex, false)
-            }
-        }
-        videoEncoder!!.stop()
-        videoEncoder!!.release()
-    }
-
-    private fun encodeAudio() {
-        val bufferInfo = MediaCodec.BufferInfo()
-        val inputSize = AudioRecord.getMinBufferSize(
-            44100, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT
-        ) * 2
-        val pcmBuffer = ByteArray(inputSize)
-
-        while (isRunning.get()) {
-            val inputIndex = audioEncoder!!.dequeueInputBuffer(10_000)
-            if (inputIndex >= 0) {
-                val read = audioRecord!!.read(pcmBuffer, 0, pcmBuffer.size)
-                if (read > 0) {
-                    val inputBuffer = audioEncoder!!.getInputBuffer(inputIndex)!!
-                    inputBuffer.clear()
-                    inputBuffer.put(pcmBuffer, 0, read)
-                    audioEncoder!!.queueInputBuffer(inputIndex, 0, read, System.nanoTime() / 1000, 0)
-                }
-            }
-            val outputIndex = audioEncoder!!.dequeueOutputBuffer(bufferInfo, 10_000)
-            if (outputIndex >= 0) {
-                val buffer = audioEncoder!!.getOutputBuffer(outputIndex) ?: continue
-                rtmpSender?.sendAudio(buffer, bufferInfo)
-                audioEncoder!!.releaseOutputBuffer(outputIndex, false)
-            }
-        }
-
-        audioRecord!!.stop()
-        audioRecord!!.release()
-        audioEncoder!!.stop()
-        audioEncoder!!.release()
-    }
-
     private fun stopStreaming() {
-        isRunning.set(false)
-        virtualDisplay?.release()
-        mediaProjection?.stop()
-        rtmpSender?.disconnect()
+        try {
+            rtmpStream?.stopStream()
+        } catch (_: Exception) {}
         stopForeground(true)
         stopSelf()
+        mainActivity?.notifyFlutter("onStreamStopped")
     }
 
     private fun createNotificationChannel() {
