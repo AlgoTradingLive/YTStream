@@ -19,7 +19,9 @@ class FloatingButtonService : Service() {
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
     private var isPaused = false
+    private var isMuted = false
     private lateinit var pauseBtn: TextView
+    private lateinit var muteBtn: TextView
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -36,37 +38,16 @@ class FloatingButtonService : Service() {
             }
         }
 
-        pauseBtn = TextView(this).apply {
-            text = "⏸"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                setColor(Color.argb(255, 200, 120, 0))
-                cornerRadius = 40f
-            }
-            setPadding(24, 14, 24, 14)
-            gravity = Gravity.CENTER
-        }
-
-        val stopBtn = TextView(this).apply {
-            text = "⏹"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                setColor(Color.argb(255, 200, 0, 0))
-                cornerRadius = 40f
-            }
-            setPadding(24, 14, 24, 14)
-            gravity = Gravity.CENTER
-        }
-
-        val space = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(16, 1)
-        }
+        pauseBtn = makeBtn("⏸", Color.argb(255, 200, 120, 0))
+        muteBtn = makeBtn("🔊", Color.argb(255, 0, 100, 180))
+        val stopBtn = makeBtn("⏹", Color.argb(255, 200, 0, 0))
 
         container.addView(pauseBtn)
-        container.addView(space)
+        container.addView(spacer())
+        container.addView(muteBtn)
+        container.addView(spacer())
         container.addView(stopBtn)
+
         floatingView = container
 
         val params = WindowManager.LayoutParams(
@@ -87,13 +68,12 @@ class FloatingButtonService : Service() {
         windowManager!!.addView(floatingView, params)
 
         // Drag
-        var ix = 0; var iy = 0; var tx = 0f; var ty = 0f; var drag = false
+        var ix = 0; var iy = 0; var tx = 0f; var ty = 0f
 
         floatingView!!.setOnTouchListener { _, e ->
             when (e.action) {
-                MotionEvent.ACTION_DOWN -> { ix = params.x; iy = params.y; tx = e.rawX; ty = e.rawY; drag = false; true }
+                MotionEvent.ACTION_DOWN -> { ix = params.x; iy = params.y; tx = e.rawX; ty = e.rawY; true }
                 MotionEvent.ACTION_MOVE -> {
-                    if (Math.abs(e.rawX - tx) > 5 || Math.abs(e.rawY - ty) > 5) drag = true
                     params.x = ix - (e.rawX - tx).toInt()
                     params.y = iy + (e.rawY - ty).toInt()
                     windowManager!!.updateViewLayout(floatingView, params)
@@ -109,12 +89,33 @@ class FloatingButtonService : Service() {
                 startService(Intent(applicationContext, StreamService::class.java).apply { action = "PAUSE" })
                 isPaused = true
                 pauseBtn.text = "▶"
-                (pauseBtn.background as GradientDrawable).setColor(Color.argb(255, 0, 160, 0))
+                setBtnColor(pauseBtn, Color.argb(255, 0, 160, 0))
             } else {
                 startService(Intent(applicationContext, StreamService::class.java).apply { action = "RESUME" })
                 isPaused = false
                 pauseBtn.text = "⏸"
-                (pauseBtn.background as GradientDrawable).setColor(Color.argb(255, 200, 120, 0))
+                setBtnColor(pauseBtn, Color.argb(255, 200, 120, 0))
+                // Resume मुळे mute state clear होतो
+                if (isMuted) {
+                    isMuted = false
+                    muteBtn.text = "🔊"
+                    setBtnColor(muteBtn, Color.argb(255, 0, 100, 180))
+                }
+            }
+        }
+
+        // Mute/Unmute
+        muteBtn.setOnClickListener {
+            if (!isMuted) {
+                startService(Intent(applicationContext, StreamService::class.java).apply { action = "MUTE" })
+                isMuted = true
+                muteBtn.text = "🔇"
+                setBtnColor(muteBtn, Color.argb(255, 150, 0, 0))
+            } else {
+                startService(Intent(applicationContext, StreamService::class.java).apply { action = "UNMUTE" })
+                isMuted = false
+                muteBtn.text = "🔊"
+                setBtnColor(muteBtn, Color.argb(255, 0, 100, 180))
             }
         }
 
@@ -123,6 +124,26 @@ class FloatingButtonService : Service() {
             startService(Intent(applicationContext, StreamService::class.java).apply { action = "STOP" })
             stopSelf()
         }
+    }
+
+    private fun makeBtn(text: String, color: Int) = TextView(this).apply {
+        this.text = text
+        textSize = 18f
+        setTextColor(Color.WHITE)
+        background = GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = 40f
+        }
+        setPadding(22, 14, 22, 14)
+        gravity = Gravity.CENTER
+    }
+
+    private fun spacer() = View(this).apply {
+        layoutParams = LinearLayout.LayoutParams(12, 1)
+    }
+
+    private fun setBtnColor(btn: TextView, color: Int) {
+        (btn.background as GradientDrawable).setColor(color)
     }
 
     override fun onDestroy() {
