@@ -6,7 +6,9 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
 import com.pedro.library.rtmp.RtmpDisplay
@@ -20,12 +22,19 @@ class StreamService : Service(), ConnectChecker {
     }
 
     private var rtmpDisplay: RtmpDisplay? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+    }
+
+    private fun notify(msg: String) {
+        mainHandler.post {
+            mainActivity?.notifyFlutter("onStreamError", msg)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -41,61 +50,45 @@ class StreamService : Service(), ConnectChecker {
 
         startForeground(NOTIF_ID, buildNotification())
 
-        Thread {
+        notify("Step1: Init...")
+
+        mainHandler.post {
             try {
-                mainActivity?.notifyFlutter("onStreamError", "Step 1: Creating RtmpDisplay...")
+                notify("Step2: Creating display...")
                 rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
                 rtmpDisplay!!.glInterface.setForceRender(true)
-
-                mainActivity?.notifyFlutter("onStreamError", "Step 2: setIntentResult...")
                 rtmpDisplay!!.setIntentResult(resultCode, data)
 
-                mainActivity?.notifyFlutter("onStreamError", "Step 3: prepareVideo...")
+                notify("Step3: PrepareVideo...")
                 val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 2_000_000)
 
-                mainActivity?.notifyFlutter("onStreamError", "Step 4: prepareInternalAudio...")
+                notify("Step4: PrepareAudio...")
                 val audioOk = rtmpDisplay!!.prepareInternalAudio(128_000, 44100, true)
 
-                mainActivity?.notifyFlutter("onStreamError", "V:$videoOk A:$audioOk")
+                notify("Step5: V:$videoOk A:$audioOk")
 
                 if (videoOk && audioOk) {
-                    val fullUrl = "$rtmpUrl/$streamKey"
-                    mainActivity?.notifyFlutter("onStreamError", "Step 5: startStream $rtmpUrl/***")
-                    rtmpDisplay!!.startStream(fullUrl)
-                    mainActivity?.notifyFlutter("onStreamError", "Step 5: startStream called!")
+                    notify("Step6: Starting stream...")
+                    rtmpDisplay!!.startStream("$rtmpUrl/$streamKey")
                 } else {
-                    mainActivity?.notifyFlutter("onStreamError", "Prepare failed V:$videoOk A:$audioOk")
+                    notify("Prepare failed V:$videoOk A:$audioOk")
                     stopSelf()
                 }
             } catch (e: Exception) {
-                mainActivity?.notifyFlutter("onStreamError", "EXCEPTION: ${e.javaClass.simpleName}: ${e.message}")
+                notify("EX: ${e.javaClass.simpleName}: ${e.message}")
                 stopSelf()
             }
-        }.start()
+        }
 
         return START_NOT_STICKY
     }
 
-    override fun onConnectionStarted(url: String) {
-        mainActivity?.notifyFlutter("onStreamError", "onConnectionStarted!")
-    }
-    override fun onConnectionSuccess() {
-        mainActivity?.notifyFlutter("onStreamStarted")
-    }
-    override fun onConnectionFailed(reason: String) {
-        mainActivity?.notifyFlutter("onStreamError", "FAILED: $reason")
-        stopSelf()
-    }
-    override fun onNewBitrate(bitrate: Long) {
-        mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate / 1000}")
-    }
-    override fun onDisconnect() {
-        mainActivity?.notifyFlutter("onStreamError", "onDisconnect called")
-        stopSelf()
-    }
-    override fun onAuthError() {
-        mainActivity?.notifyFlutter("onStreamError", "Auth error")
-    }
+    override fun onConnectionStarted(url: String) { notify("Connected!") }
+    override fun onConnectionSuccess() { mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") } }
+    override fun onConnectionFailed(reason: String) { notify("FAILED: $reason"); stopSelf() }
+    override fun onNewBitrate(bitrate: Long) { mainHandler.post { mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate/1000}") } }
+    override fun onDisconnect() { notify("Disconnected"); stopSelf() }
+    override fun onAuthError() { notify("Auth error") }
     override fun onAuthSuccess() {}
 
     override fun onDestroy() {
@@ -107,7 +100,7 @@ class StreamService : Service(), ConnectChecker {
         try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
         stopForeground(true)
         stopSelf()
-        mainActivity?.notifyFlutter("onStreamStopped")
+        mainHandler.post { mainActivity?.notifyFlutter("onStreamStopped") }
     }
 
     private fun createNotificationChannel() {
