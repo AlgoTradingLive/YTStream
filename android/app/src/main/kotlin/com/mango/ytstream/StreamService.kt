@@ -5,20 +5,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
-import android.media.projection.MediaProjection
-import android.media.projection.MediaProjectionManager
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
-import com.pedro.encoder.input.sources.audio.InternalAudioSource
-import com.pedro.encoder.input.sources.audio.MicrophoneSource
-import com.pedro.encoder.input.sources.video.NoVideoSource
-import com.pedro.encoder.input.sources.video.ScreenSource
-import com.pedro.library.generic.GenericStream
+import com.pedro.library.rtmp.RtmpDisplay
 
 class StreamService : Service(), ConnectChecker {
 
@@ -26,50 +17,15 @@ class StreamService : Service(), ConnectChecker {
         var mainActivity: MainActivity? = null
         const val CHANNEL_ID = "ytstream_channel"
         const val NOTIF_ID = 1
-        const val TAG = "YTStream"
     }
 
-    private lateinit var genericStream: GenericStream
-    private var mediaProjection: MediaProjection? = null
-    private val mediaProjectionManager by lazy {
-        getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-    }
-    private var prepared = false
+    private var rtmpDisplay: RtmpDisplay? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-
-        genericStream = GenericStream(applicationContext, this, NoVideoSource(), MicrophoneSource()).apply {
-            getGlInterface().setForceRender(true, 15)
-        }
-
-        // Try multiple configs — portrait device needs rotation=90
-        val configs = listOf(
-            listOf(1280, 720, 0, 32000),
-            listOf(1280, 720, 90, 32000),
-            listOf(720, 1280, 0, 32000),
-            listOf(854, 480, 0, 32000),
-            listOf(640, 480, 0, 32000),
-        )
-
-        for ((w, h, rot, sr) in configs) {
-            prepared = try {
-                genericStream.prepareVideo(w, h, 2_000_000, rotation = rot) &&
-                genericStream.prepareAudio(sr, true, 128_000)
-            } catch (e: Exception) {
-                Log.e(TAG, "prepare ${w}x${h} rot=$rot failed: ${e.message}")
-                false
-            }
-            if (prepared) {
-                Log.i(TAG, "Prepared OK: ${w}x${h} rot=$rot sr=$sr")
-                break
-            }
-        }
-
-        if (!prepared) Log.e(TAG, "All prepare configs failed")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -85,34 +41,30 @@ class StreamService : Service(), ConnectChecker {
 
         startForeground(NOTIF_ID, buildNotification())
 
-        if (!prepared) {
-            mainActivity?.notifyFlutter("onStreamError", "Encoder prepare failed — device not supported")
-            return START_NOT_STICKY
-        }
+        Thread {
+            try {
+                // RtmpDisplay is specifically designed for screen streaming
+                rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
+                rtmpDisplay!!.glInterface.setForceRender(true)
 
-        mediaProjection?.stop()
-        mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data)
+                // Set MediaProjection result
+                rtmpDisplay!!.setIntentResult(resultCode, data)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            mediaProjection!!.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() { stopStreaming() }
-            }, Handler(Looper.getMainLooper()))
-        }
+                // prepareVideo and prepareAudio with no params uses defaults
+                val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 30, 2_000_000, 0)
+                val audioOk = rtmpDisplay!!.prepareAudio(128_000, 44100, true)
 
-        try {
-            val screenSource = ScreenSource(applicationContext, mediaProjection!!)
-            genericStream.changeVideoSource(screenSource)
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                genericStream.changeAudioSource(InternalAudioSource(mediaProjection!!))
+                if (videoOk && audioOk) {
+                    rtmpDisplay!!.startStream("$rtmpUrl/$streamKey")
+                } else {
+                    mainActivity?.notifyFlutter("onStreamError", "Prepare failed V:$videoOk A:$audioOk")
+                    stopSelf()
+                }
+            } catch (e: Exception) {
+                mainActivity?.notifyFlutter("onStreamError", "${e.javaClass.simpleName}: ${e.message}")
+                stopSelf()
             }
-
-            genericStream.startStream("$rtmpUrl/$streamKey")
-
-        } catch (e: Exception) {
-            mainActivity?.notifyFlutter("onStreamError", "${e.javaClass.simpleName}: ${e.message}")
-            stopSelf()
-        }
+        }.start()
 
         return START_NOT_STICKY
     }
@@ -131,15 +83,11 @@ class StreamService : Service(), ConnectChecker {
 
     override fun onDestroy() {
         super.onDestroy()
-        try { genericStream.release() } catch (_: Exception) {}
-        mediaProjection?.stop()
-        mediaProjection = null
+        stopStreaming()
     }
 
     private fun stopStreaming() {
-        if (::genericStream.isInitialized && genericStream.isStreaming) genericStream.stopStream()
-        mediaProjection?.stop()
-        mediaProjection = null
+        try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
         stopForeground(true)
         stopSelf()
         mainActivity?.notifyFlutter("onStreamStopped")
