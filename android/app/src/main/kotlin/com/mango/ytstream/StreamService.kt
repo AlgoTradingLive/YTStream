@@ -4,8 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -26,12 +28,14 @@ class StreamService : Service(), ConnectChecker {
     private var rtmpDisplay: RtmpDisplay? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wakeLock: PowerManager.WakeLock? = null
+    private var screenReceiver: BroadcastReceiver? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        registerScreenReceiver()
     }
 
     private fun notify(msg: String) {
@@ -41,7 +45,7 @@ class StreamService : Service(), ConnectChecker {
     private fun acquireWakeLock() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "YTStream::Lock").apply {
-            acquire(6 * 60 * 60 * 1000L)
+            acquire(8 * 60 * 60 * 1000L) // 8 hours
         }
     }
 
@@ -50,18 +54,38 @@ class StreamService : Service(), ConnectChecker {
         wakeLock = null
     }
 
+    // Screen off होऊनही stream चालू राहण्यासाठी
+    private fun registerScreenReceiver() {
+        screenReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> {
+                        // Screen off झाली तरी WakeLock मुळे stream चालू राहतो
+                        rtmpDisplay?.glInterface?.setForceRender(true)
+                    }
+                    Intent.ACTION_SCREEN_ON -> {
+                        rtmpDisplay?.glInterface?.setForceRender(true)
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+        }
+        registerReceiver(screenReceiver, filter)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             "STOP" -> { stopStreaming(); return START_NOT_STICKY }
             "PAUSE" -> {
-                // Mute audio on pause — viewers hear silence
-                rtmpDisplay?.stopAudio()
-                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "⏸ Paused") }
+                rtmpDisplay?.mute()
+                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "⏸ Paused - audio muted") }
                 return START_NOT_STICKY
             }
             "RESUME" -> {
-                // Resume audio
-                rtmpDisplay?.startAudio()
+                rtmpDisplay?.unMute()
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
                 return START_NOT_STICKY
             }
@@ -138,6 +162,7 @@ class StreamService : Service(), ConnectChecker {
 
     override fun onDestroy() {
         super.onDestroy()
+        try { screenReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
         try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
         releaseWakeLock()
     }
@@ -160,7 +185,7 @@ class StreamService : Service(), ConnectChecker {
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("🔴 YT Stream - LIVE")
-            .setContentText("Streaming to YouTube")
+            .setContentText("Screen off करता येतो - stream चालू राहील")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true).build()
     }
