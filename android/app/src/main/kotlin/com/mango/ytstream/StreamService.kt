@@ -12,12 +12,12 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
-import com.pedro.encoder.input.gl.render.filters.NoFilterRender
+import com.pedro.common.ConnectChecker
+import com.pedro.encoder.input.sources.audio.InternalAudioSource
+import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.rtmp.RtmpStream
-import com.pedro.library.util.sources.audio.InternalAudioSource
-import com.pedro.library.util.sources.video.ScreenSource
 
-class StreamService : Service() {
+class StreamService : Service(), ConnectChecker {
 
     companion object {
         var mainActivity: MainActivity? = null
@@ -26,6 +26,7 @@ class StreamService : Service() {
     }
 
     private var rtmpStream: RtmpStream? = null
+    private var mediaProjection: MediaProjection? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -48,38 +49,41 @@ class StreamService : Service() {
         startForeground(NOTIF_ID, buildNotification())
 
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val mediaProjection = manager.getMediaProjection(resultCode, data)
+        mediaProjection = manager.getMediaProjection(resultCode, data)
 
-        // Register callback for Android 14+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            mediaProjection.registerCallback(object : MediaProjection.Callback() {
+            mediaProjection!!.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() { stopStreaming() }
             }, Handler(Looper.getMainLooper()))
         }
 
         Thread {
             try {
-                // RootEncoder handles screen + internal audio + RTMP
-                val screenSource = ScreenSource(applicationContext, mediaProjection)
-                val audioSource = InternalAudioSource(mediaProjection)
+                val screenSource = ScreenSource(applicationContext, mediaProjection!!)
+                val audioSource = InternalAudioSource(mediaProjection!!)
 
-                rtmpStream = RtmpStream(applicationContext, audioSource, screenSource)
+                rtmpStream = RtmpStream(applicationContext, this)
+                rtmpStream!!.changeVideoSource(screenSource)
+                rtmpStream!!.changeAudioSource(audioSource)
 
-                rtmpStream!!.prepareVideo(
+                val videoPrepared = rtmpStream!!.prepareVideo(
                     width = 1280,
                     height = 720,
                     fps = 30,
                     bitrate = 2_500_000
                 )
-                rtmpStream!!.prepareAudio(
+                val audioPrepared = rtmpStream!!.prepareAudio(
                     sampleRate = 44100,
                     isStereo = true,
                     bitrate = 128_000
                 )
 
-                rtmpStream!!.startStream("$rtmpUrl/$streamKey")
-                mainActivity?.notifyFlutter("onStreamStarted")
-
+                if (videoPrepared && audioPrepared) {
+                    rtmpStream!!.startStream("$rtmpUrl/$streamKey")
+                } else {
+                    mainActivity?.notifyFlutter("onStreamError", "Prepare failed")
+                    stopSelf()
+                }
             } catch (e: Exception) {
                 mainActivity?.notifyFlutter("onStreamError", e.message ?: "Stream error")
                 stopSelf()
@@ -89,10 +93,29 @@ class StreamService : Service() {
         return START_NOT_STICKY
     }
 
+    // ConnectChecker callbacks
+    override fun onConnectionStarted(url: String) {}
+    override fun onConnectionSuccess() {
+        mainActivity?.notifyFlutter("onStreamStarted")
+    }
+    override fun onConnectionFailed(reason: String) {
+        mainActivity?.notifyFlutter("onStreamError", reason)
+        stopSelf()
+    }
+    override fun onNewBitrate(bitrate: Long) {
+        mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate / 1000}")
+    }
+    override fun onDisconnect() {
+        mainActivity?.notifyFlutter("onStreamStopped")
+    }
+    override fun onAuthError() {
+        mainActivity?.notifyFlutter("onStreamError", "Auth error")
+    }
+    override fun onAuthSuccess() {}
+
     private fun stopStreaming() {
-        try {
-            rtmpStream?.stopStream()
-        } catch (_: Exception) {}
+        try { rtmpStream?.stopStream() } catch (_: Exception) {}
+        try { mediaProjection?.stop() } catch (_: Exception) {}
         stopForeground(true)
         stopSelf()
         mainActivity?.notifyFlutter("onStreamStopped")
