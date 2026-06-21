@@ -4,11 +4,13 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
 import com.pedro.library.rtmp.RtmpDisplay
@@ -23,6 +25,7 @@ class StreamService : Service(), ConnectChecker {
 
     private var rtmpDisplay: RtmpDisplay? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -33,6 +36,23 @@ class StreamService : Service(), ConnectChecker {
 
     private fun notify(msg: String) {
         mainHandler.post { mainActivity?.notifyFlutter("onStreamError", msg) }
+    }
+
+    private fun acquireWakeLock() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "YTStream::StreamingLock"
+        ).apply {
+            acquire(6 * 60 * 60 * 1000L) // 6 hours max
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        } catch (_: Exception) {}
+        wakeLock = null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -47,6 +67,7 @@ class StreamService : Service(), ConnectChecker {
         val streamKey = intent.getStringExtra("streamKey") ?: return START_NOT_STICKY
 
         startForeground(NOTIF_ID, buildNotification())
+        acquireWakeLock() // screen off असताना पण चालेल
 
         mainHandler.post {
             try {
@@ -56,13 +77,12 @@ class StreamService : Service(), ConnectChecker {
 
                 val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 2_000_000)
 
-                // Try multiple audio configs for Samsung compatibility
+                // Try internal audio configs
                 val audioConfigs = listOf(
                     Triple(128_000, 44100, true),
                     Triple(128_000, 44100, false),
                     Triple(64_000, 44100, true),
                     Triple(64_000, 32000, true),
-                    Triple(64_000, 16000, true),
                     Triple(64_000, 16000, false),
                 )
 
@@ -74,9 +94,8 @@ class StreamService : Service(), ConnectChecker {
                     if (audioOk) break
                 }
 
-                // Samsung fallback: use mic if internal audio fails
+                // Fallback to mic if internal audio fails (Samsung etc)
                 if (!audioOk) {
-                    notify("Internal audio failed on this device, trying mic...")
                     audioOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
                 }
 
@@ -84,10 +103,12 @@ class StreamService : Service(), ConnectChecker {
                     rtmpDisplay!!.startStream("$rtmpUrl/$streamKey")
                 } else {
                     notify("Prepare failed V:$videoOk A:$audioOk")
+                    releaseWakeLock()
                     stopSelf()
                 }
             } catch (e: Exception) {
-                notify("Error: ${e.javaClass.simpleName}: ${e.message}")
+                notify("Error: ${e.message}")
+                releaseWakeLock()
                 stopSelf()
             }
         }
@@ -100,13 +121,17 @@ class StreamService : Service(), ConnectChecker {
         mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
     }
     override fun onConnectionFailed(reason: String) {
-        notify("Failed: $reason"); stopSelf()
+        notify("Failed: $reason")
+        releaseWakeLock()
+        stopSelf()
     }
     override fun onNewBitrate(bitrate: Long) {
         mainHandler.post { mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate / 1000}") }
     }
     override fun onDisconnect() {
-        notify("Disconnected"); stopSelf()
+        notify("Disconnected")
+        releaseWakeLock()
+        stopSelf()
     }
     override fun onAuthError() { notify("Auth error") }
     override fun onAuthSuccess() {}
@@ -114,10 +139,12 @@ class StreamService : Service(), ConnectChecker {
     override fun onDestroy() {
         super.onDestroy()
         try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
+        releaseWakeLock()
     }
 
     private fun stopStreaming() {
         try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
+        releaseWakeLock()
         stopForeground(true)
         stopSelf()
         mainHandler.post { mainActivity?.notifyFlutter("onStreamStopped") }
@@ -133,7 +160,7 @@ class StreamService : Service(), ConnectChecker {
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("🔴 YT Stream - LIVE")
-            .setContentText("Streaming to YouTube")
+            .setContentText("Streaming to YouTube — screen off करता येतो")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true).build()
     }
