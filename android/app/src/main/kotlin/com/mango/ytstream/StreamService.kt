@@ -8,11 +8,17 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.MediaCodec
+import android.media.MediaFormat
+import android.media.MediaCodecInfo
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
 import com.pedro.library.rtmp.RtmpDisplay
@@ -29,6 +35,8 @@ class StreamService : Service(), ConnectChecker {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wakeLock: PowerManager.WakeLock? = null
     private var screenReceiver: BroadcastReceiver? = null
+    private var audioMixer: AudioMixer? = null
+    private var mediaProjection: MediaProjection? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -103,6 +111,15 @@ class StreamService : Service(), ConnectChecker {
         startForeground(NOTIF_ID, buildNotification())
         acquireWakeLock()
 
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        mediaProjection = manager.getMediaProjection(resultCode, data)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            mediaProjection!!.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() { stopStreaming() }
+            }, mainHandler)
+        }
+
         mainHandler.post {
             try {
                 rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
@@ -111,26 +128,24 @@ class StreamService : Service(), ConnectChecker {
 
                 val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 2_000_000)
 
-                var audioOk = false
-                val configs = listOf(
-                    Triple(128_000, 44100, true),
-                    Triple(128_000, 44100, false),
-                    Triple(64_000, 44100, true),
-                    Triple(64_000, 32000, true),
-                    Triple(64_000, 16000, false),
-                )
-
-                val echoCanceler = audioMode == "mic_internal"
-
-                for ((bitrate, sampleRate, stereo) in configs) {
-                    audioOk = try {
-                        rtmpDisplay!!.prepareInternalAudio(bitrate, sampleRate, stereo, echoCanceler, false)
-                    } catch (e: Exception) { false }
-                    if (audioOk) break
-                }
-
-                if (!audioOk) {
-                    audioOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
+                val audioOk = if (audioMode == "mic_internal" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    // Mic + Internal: use AudioMixer + custom audio input
+                    setupMicInternalAudio()
+                } else {
+                    // Only internal
+                    var ok = false
+                    for ((bitrate, sampleRate, stereo) in listOf(
+                        Triple(128_000, 44100, true),
+                        Triple(128_000, 44100, false),
+                        Triple(64_000, 44100, true),
+                        Triple(64_000, 32000, true),
+                    )) {
+                        ok = try { rtmpDisplay!!.prepareInternalAudio(bitrate, sampleRate, stereo, false, false) }
+                             catch (e: Exception) { false }
+                        if (ok) break
+                    }
+                    if (!ok) ok = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
+                    ok
                 }
 
                 if (videoOk && audioOk) {
@@ -148,6 +163,31 @@ class StreamService : Service(), ConnectChecker {
         }
 
         return START_NOT_STICKY
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun setupMicInternalAudio(): Boolean {
+        return try {
+            // Prepare with mic audio first (RtmpDisplay needs one audio source)
+            val ok = rtmpDisplay!!.prepareAudio(128_000, 44100, true)
+            if (ok) {
+                // Start AudioMixer — feeds mixed PCM to RtmpDisplay via custom effect
+                audioMixer = AudioMixer(mediaProjection!!, 44100) { pcmData, size ->
+                    // Send mixed PCM to encoder via custom audio effect
+                    rtmpDisplay?.setCustomAudioEffect { buffer ->
+                        // Replace mic buffer with mixed audio
+                        val src = pcmData
+                        val len = minOf(size, buffer.remaining())
+                        buffer.put(src, 0, len)
+                    }
+                }
+                audioMixer!!.start()
+            }
+            ok
+        } catch (e: Exception) {
+            // Fallback to internal only
+            rtmpDisplay!!.prepareInternalAudio(128_000, 44100, true, false, false)
+        }
     }
 
     override fun onConnectionStarted(url: String) {}
@@ -169,11 +209,13 @@ class StreamService : Service(), ConnectChecker {
     override fun onDestroy() {
         super.onDestroy()
         try { screenReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
+        try { audioMixer?.stop() } catch (_: Exception) {}
         try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
         releaseWakeLock()
     }
 
     private fun stopStreaming() {
+        try { audioMixer?.stop() } catch (_: Exception) {}
         try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
         releaseWakeLock()
         stopForeground(true)
