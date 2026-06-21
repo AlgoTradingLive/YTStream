@@ -43,23 +43,32 @@ class StreamService : Service(), ConnectChecker {
 
         Thread {
             try {
-                // useOpengl=true for screen capture
+                mainActivity?.notifyFlutter("onStreamError", "Step 1: Creating RtmpDisplay...")
                 rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
                 rtmpDisplay!!.glInterface.setForceRender(true)
+
+                mainActivity?.notifyFlutter("onStreamError", "Step 2: setIntentResult...")
                 rtmpDisplay!!.setIntentResult(resultCode, data)
 
+                mainActivity?.notifyFlutter("onStreamError", "Step 3: prepareVideo...")
                 val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 2_000_000)
+
+                mainActivity?.notifyFlutter("onStreamError", "Step 4: prepareInternalAudio...")
                 val audioOk = rtmpDisplay!!.prepareInternalAudio(128_000, 44100, true)
 
+                mainActivity?.notifyFlutter("onStreamError", "V:$videoOk A:$audioOk")
+
                 if (videoOk && audioOk) {
-                    // RTMPS URL format: rtmps://a.rtmps.youtube.com/live2/KEY
-                    rtmpDisplay!!.startStream("$rtmpUrl/$streamKey")
+                    val fullUrl = "$rtmpUrl/$streamKey"
+                    mainActivity?.notifyFlutter("onStreamError", "Step 5: startStream $rtmpUrl/***")
+                    rtmpDisplay!!.startStream(fullUrl)
+                    mainActivity?.notifyFlutter("onStreamError", "Step 5: startStream called!")
                 } else {
                     mainActivity?.notifyFlutter("onStreamError", "Prepare failed V:$videoOk A:$audioOk")
                     stopSelf()
                 }
             } catch (e: Exception) {
-                mainActivity?.notifyFlutter("onStreamError", "${e.javaClass.simpleName}: ${e.message}")
+                mainActivity?.notifyFlutter("onStreamError", "EXCEPTION: ${e.javaClass.simpleName}: ${e.message}")
                 stopSelf()
             }
         }.start()
@@ -68,24 +77,24 @@ class StreamService : Service(), ConnectChecker {
     }
 
     override fun onConnectionStarted(url: String) {
-        mainActivity?.notifyFlutter("onStreamError", "Connecting...")
+        mainActivity?.notifyFlutter("onStreamError", "onConnectionStarted!")
     }
     override fun onConnectionSuccess() {
         mainActivity?.notifyFlutter("onStreamStarted")
     }
     override fun onConnectionFailed(reason: String) {
-        mainActivity?.notifyFlutter("onStreamError", "Failed: $reason")
+        mainActivity?.notifyFlutter("onStreamError", "FAILED: $reason")
         stopSelf()
     }
     override fun onNewBitrate(bitrate: Long) {
         mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate / 1000}")
     }
     override fun onDisconnect() {
-        mainActivity?.notifyFlutter("onStreamError", "Disconnected")
+        mainActivity?.notifyFlutter("onStreamError", "onDisconnect called")
         stopSelf()
     }
     override fun onAuthError() {
-        mainActivity?.notifyFlutter("onStreamError", "Auth error - wrong stream key")
+        mainActivity?.notifyFlutter("onStreamError", "Auth error")
     }
     override fun onAuthSuccess() {}
 
@@ -110,7 +119,7 @@ class StreamService : Service(), ConnectChecker {
 
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("🔴 YT Stream - LIVE")
+            .setContentTitle("🔴 YT Stream")
             .setContentText("Streaming to YouTube")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true).build()
