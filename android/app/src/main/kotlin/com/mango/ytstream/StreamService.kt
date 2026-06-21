@@ -43,16 +43,13 @@ class StreamService : Service(), ConnectChecker {
 
         Thread {
             try {
-                // RtmpDisplay is specifically designed for screen streaming
                 rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
                 rtmpDisplay!!.glInterface.setForceRender(true)
-
-                // Set MediaProjection result
                 rtmpDisplay!!.setIntentResult(resultCode, data)
 
-                // prepareVideo and prepareAudio with no params uses defaults
-                val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 30, 2_000_000, 0)
-                val audioOk = rtmpDisplay!!.prepareAudio(128_000, 44100, true)
+                // 3-param version: width, height, bitrate
+                val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 2_000_000)
+                val audioOk = rtmpDisplay!!.prepareAudio(44100, true, 128_000)
 
                 if (videoOk && audioOk) {
                     rtmpDisplay!!.startStream("$rtmpUrl/$streamKey")
@@ -83,7 +80,7 @@ class StreamService : Service(), ConnectChecker {
 
     override fun onDestroy() {
         super.onDestroy()
-        stopStreaming()
+        try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
     }
 
     private fun stopStreaming() {
