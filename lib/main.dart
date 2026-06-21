@@ -41,59 +41,44 @@ class _StreamPageState extends State<StreamPage> {
   bool _isLoading = false;
   String _status = 'Ready';
   String _rtmpUrl = 'rtmps://a.rtmps.youtube.com/live2';
+  String _audioMode = 'internal'; // 'internal' or 'mic_internal'
 
   @override
   void initState() {
     super.initState();
-    _loadSavedKey();
+    _loadSaved();
     platform.setMethodCallHandler(_handleNativeCallback);
   }
 
-  Future<void> _loadSavedKey() async {
+  Future<void> _loadSaved() async {
     final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString('stream_key') ?? '';
-    final savedUrl = prefs.getString('rtmp_url') ?? 'rtmps://a.rtmps.youtube.com/live2';
     setState(() {
-      _streamKeyController.text = saved;
-      _rtmpUrl = savedUrl;
+      _streamKeyController.text = prefs.getString('stream_key') ?? '';
+      _rtmpUrl = prefs.getString('rtmp_url') ?? 'rtmps://a.rtmps.youtube.com/live2';
+      _audioMode = prefs.getString('audio_mode') ?? 'internal';
     });
   }
 
-  Future<void> _saveKey(String key) async {
+  Future<void> _savePref() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('stream_key', key);
+    await prefs.setString('stream_key', _streamKeyController.text.trim());
     await prefs.setString('rtmp_url', _rtmpUrl);
+    await prefs.setString('audio_mode', _audioMode);
   }
 
   Future<dynamic> _handleNativeCallback(MethodCall call) async {
     switch (call.method) {
       case 'onStreamStarted':
-        setState(() {
-          _isStreaming = true;
-          _isLoading = false;
-          _status = '🔴 LIVE - Streaming...';
-        });
+        setState(() { _isStreaming = true; _isLoading = false; _status = '🔴 LIVE - Streaming...'; });
         break;
       case 'onStreamError':
-        setState(() {
-          _isStreaming = false;
-          _isLoading = false;
-          _status = '❌ ${call.arguments}';
-        });
+        setState(() { _isStreaming = false; _isLoading = false; _status = '❌ ${call.arguments}'; });
         break;
       case 'onStreamStopped':
-        setState(() {
-          _isStreaming = false;
-          _isLoading = false;
-          _status = 'Stopped';
-        });
+        setState(() { _isStreaming = false; _isLoading = false; _status = 'Stopped'; });
         break;
       case 'onBitrateUpdate':
-        if (_isStreaming) {
-          setState(() {
-            _status = '🔴 LIVE — ${call.arguments} kbps';
-          });
-        }
+        if (_isStreaming) setState(() { _status = '🔴 LIVE — ${call.arguments} kbps'; });
         break;
     }
   }
@@ -101,15 +86,18 @@ class _StreamPageState extends State<StreamPage> {
   Future<void> _startStream() async {
     final key = _streamKeyController.text.trim();
     if (key.isEmpty) {
-      _showError('Stream Key enter karo!');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Stream Key enter karo!'), backgroundColor: Colors.red),
+      );
       return;
     }
-    await _saveKey(key);
+    await _savePref();
     setState(() { _isLoading = true; _status = 'Starting...'; });
     try {
       await platform.invokeMethod('startStream', {
         'rtmpUrl': _rtmpUrl,
         'streamKey': key,
+        'audioMode': _audioMode,
       });
     } on PlatformException catch (e) {
       setState(() { _isLoading = false; _status = '❌ ${e.message}'; });
@@ -125,33 +113,16 @@ class _StreamPageState extends State<StreamPage> {
     }
   }
 
-  void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.red),
-    );
-  }
-
   void _showRtmpDialog() {
     final controller = TextEditingController(text: _rtmpUrl);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('RTMP/RTMPS URL'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'rtmps://a.rtmps.youtube.com/live2',
-          ),
-        ),
+        title: const Text('RTMP URL'),
+        content: TextField(controller: controller),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              setState(() => _rtmpUrl = controller.text.trim());
-              Navigator.pop(ctx);
-            },
-            child: const Text('Save'),
-          ),
+          TextButton(onPressed: () { setState(() => _rtmpUrl = controller.text.trim()); Navigator.pop(ctx); }, child: const Text('Save')),
         ],
       ),
     );
@@ -165,10 +136,7 @@ class _StreamPageState extends State<StreamPage> {
         backgroundColor: const Color(0xFF161B22),
         title: const Text('YT Stream', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.settings, color: Colors.white70),
-            onPressed: _showRtmpDialog,
-          ),
+          IconButton(icon: const Icon(Icons.settings, color: Colors.white70), onPressed: _showRtmpDialog),
         ],
       ),
       body: Padding(
@@ -176,6 +144,7 @@ class _StreamPageState extends State<StreamPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Status
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -196,7 +165,9 @@ class _StreamPageState extends State<StreamPage> {
                 ],
               ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
+
+            // Stream Key
             const Text('YouTube Stream Key', style: TextStyle(color: Colors.white70, fontSize: 13)),
             const SizedBox(height: 8),
             TextField(
@@ -221,26 +192,69 @@ class _StreamPageState extends State<StreamPage> {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            Text('URL: $_rtmpUrl', style: const TextStyle(color: Colors.white24, fontSize: 11)),
             const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0D2137),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.blue.withOpacity(0.3)),
-              ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('ℹ️  Screen + Internal Audio → YT Live', style: TextStyle(color: Colors.lightBlue, fontSize: 13)),
-                  SizedBox(height: 6),
-                  Text('Stream Key: YouTube Studio → Go Live → Stream tab', style: TextStyle(color: Colors.white38, fontSize: 12)),
-                ],
-              ),
+
+            // Audio Mode Selector
+            const Text('Audio Mode', style: TextStyle(color: Colors.white70, fontSize: 13)),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: _isStreaming ? null : () => setState(() => _audioMode = 'internal'),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: _audioMode == 'internal'
+                            ? const Color(0xFF1565C0)
+                            : const Color(0xFF161B22),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _audioMode == 'internal' ? const Color(0xFF1565C0) : Colors.white12,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Text('🔊', style: TextStyle(fontSize: 24)),
+                          const SizedBox(height: 4),
+                          const Text('Only Internal', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
+                          const Text('Game/App sound', style: TextStyle(color: Colors.white54, fontSize: 10)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: _isStreaming ? null : () => setState(() => _audioMode = 'mic_internal'),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: _audioMode == 'mic_internal'
+                            ? const Color(0xFF1565C0)
+                            : const Color(0xFF161B22),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _audioMode == 'mic_internal' ? const Color(0xFF1565C0) : Colors.white12,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Text('🎤', style: TextStyle(fontSize: 24)),
+                          const SizedBox(height: 4),
+                          const Text('Mic + Internal', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
+                          const Text('Commentary + Sound', style: TextStyle(color: Colors.white54, fontSize: 10)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
             const Spacer(),
+
+            // Start/Stop Button
             SizedBox(
               height: 56,
               child: ElevatedButton(
