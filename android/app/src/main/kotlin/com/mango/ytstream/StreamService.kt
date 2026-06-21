@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.sources.audio.InternalAudioSource
@@ -25,6 +26,7 @@ class StreamService : Service(), ConnectChecker {
         var mainActivity: MainActivity? = null
         const val CHANNEL_ID = "ytstream_channel"
         const val NOTIF_ID = 1
+        const val TAG = "YTStream"
     }
 
     private lateinit var genericStream: GenericStream
@@ -40,18 +42,34 @@ class StreamService : Service(), ConnectChecker {
         super.onCreate()
         createNotificationChannel()
 
-        // Official pattern: create with NoVideoSource + MicrophoneSource
-        // then switch to ScreenSource + InternalAudioSource after MediaProjection
         genericStream = GenericStream(applicationContext, this, NoVideoSource(), MicrophoneSource()).apply {
             getGlInterface().setForceRender(true, 15)
         }
 
-        prepared = try {
-            genericStream.prepareVideo(1280, 720, 2_000_000) &&
-            genericStream.prepareAudio(32000, true, 128_000)
-        } catch (e: IllegalArgumentException) {
-            false
+        // Try multiple configs — portrait device needs rotation=90
+        val configs = listOf(
+            listOf(1280, 720, 0, 32000),
+            listOf(1280, 720, 90, 32000),
+            listOf(720, 1280, 0, 32000),
+            listOf(854, 480, 0, 32000),
+            listOf(640, 480, 0, 32000),
+        )
+
+        for ((w, h, rot, sr) in configs) {
+            prepared = try {
+                genericStream.prepareVideo(w, h, 2_000_000, rotation = rot) &&
+                genericStream.prepareAudio(sr, true, 128_000)
+            } catch (e: Exception) {
+                Log.e(TAG, "prepare ${w}x${h} rot=$rot failed: ${e.message}")
+                false
+            }
+            if (prepared) {
+                Log.i(TAG, "Prepared OK: ${w}x${h} rot=$rot sr=$sr")
+                break
+            }
         }
+
+        if (!prepared) Log.e(TAG, "All prepare configs failed")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -68,7 +86,7 @@ class StreamService : Service(), ConnectChecker {
         startForeground(NOTIF_ID, buildNotification())
 
         if (!prepared) {
-            mainActivity?.notifyFlutter("onStreamError", "Encoder prepare failed")
+            mainActivity?.notifyFlutter("onStreamError", "Encoder prepare failed — device not supported")
             return START_NOT_STICKY
         }
 
@@ -82,16 +100,13 @@ class StreamService : Service(), ConnectChecker {
         }
 
         try {
-            // Switch to screen source
             val screenSource = ScreenSource(applicationContext, mediaProjection!!)
             genericStream.changeVideoSource(screenSource)
 
-            // Switch to internal audio (Android 10+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 genericStream.changeAudioSource(InternalAudioSource(mediaProjection!!))
             }
 
-            // Start RTMP stream
             genericStream.startStream("$rtmpUrl/$streamKey")
 
         } catch (e: Exception) {
@@ -116,13 +131,13 @@ class StreamService : Service(), ConnectChecker {
 
     override fun onDestroy() {
         super.onDestroy()
-        genericStream.release()
+        try { genericStream.release() } catch (_: Exception) {}
         mediaProjection?.stop()
         mediaProjection = null
     }
 
     private fun stopStreaming() {
-        if (genericStream.isStreaming) genericStream.stopStream()
+        if (::genericStream.isInitialized && genericStream.isStreaming) genericStream.stopStream()
         mediaProjection?.stop()
         mediaProjection = null
         stopForeground(true)
