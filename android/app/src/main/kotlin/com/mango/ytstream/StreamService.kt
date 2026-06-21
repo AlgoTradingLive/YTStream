@@ -11,14 +11,13 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.util.DisplayMetrics
-import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.sources.audio.InternalAudioSource
 import com.pedro.encoder.input.sources.audio.MicrophoneSource
+import com.pedro.encoder.input.sources.video.NoVideoSource
 import com.pedro.encoder.input.sources.video.ScreenSource
-import com.pedro.library.rtmp.RtmpStream
+import com.pedro.library.generic.GenericStream
 
 class StreamService : Service(), ConnectChecker {
 
@@ -28,14 +27,31 @@ class StreamService : Service(), ConnectChecker {
         const val NOTIF_ID = 1
     }
 
-    private var rtmpStream: RtmpStream? = null
+    private lateinit var genericStream: GenericStream
     private var mediaProjection: MediaProjection? = null
+    private val mediaProjectionManager by lazy {
+        getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+    }
+    private var prepared = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+
+        // Official pattern: create with NoVideoSource + MicrophoneSource
+        // then switch to ScreenSource + InternalAudioSource after MediaProjection
+        genericStream = GenericStream(applicationContext, this, NoVideoSource(), MicrophoneSource()).apply {
+            getGlInterface().setForceRender(true, 15)
+        }
+
+        prepared = try {
+            genericStream.prepareVideo(1280, 720, 2_000_000) &&
+            genericStream.prepareAudio(32000, true, 128_000)
+        } catch (e: IllegalArgumentException) {
+            false
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -51,8 +67,13 @@ class StreamService : Service(), ConnectChecker {
 
         startForeground(NOTIF_ID, buildNotification())
 
-        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjection = manager.getMediaProjection(resultCode, data)
+        if (!prepared) {
+            mainActivity?.notifyFlutter("onStreamError", "Encoder prepare failed")
+            return START_NOT_STICKY
+        }
+
+        mediaProjection?.stop()
+        mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             mediaProjection!!.registerCallback(object : MediaProjection.Callback() {
@@ -60,40 +81,23 @@ class StreamService : Service(), ConnectChecker {
             }, Handler(Looper.getMainLooper()))
         }
 
-        Thread {
-            try {
-                // Key insight: prepareVideo and prepareAudio happen BEFORE
-                // sources are set — so InternalAudioSource shouldn't block prepare.
-                // The issue is InternalAudioSource needs MediaProjection which
-                // also powers ScreenSource. Use MicrophoneSource for prepare,
-                // then switch to InternalAudioSource after prepare.
+        try {
+            // Switch to screen source
+            val screenSource = ScreenSource(applicationContext, mediaProjection!!)
+            genericStream.changeVideoSource(screenSource)
 
-                rtmpStream = RtmpStream(applicationContext, this@StreamService)
-
-                // Prepare with default sources first
-                val videoOk = rtmpStream!!.prepareVideo(1280, 720, 2_000_000)
-                val audioOk = rtmpStream!!.prepareAudio(44100, true, 128_000)
-
-                if (!videoOk || !audioOk) {
-                    mainActivity?.notifyFlutter("onStreamError", "Prepare failed V:$videoOk A:$audioOk")
-                    stopSelf()
-                    return@Thread
-                }
-
-                // Now switch to screen + internal audio sources
-                val screenSource = ScreenSource(applicationContext, mediaProjection!!)
-                val audioSource = InternalAudioSource(mediaProjection!!)
-
-                rtmpStream!!.changeVideoSource(screenSource)
-                rtmpStream!!.changeAudioSource(audioSource)
-
-                rtmpStream!!.startStream("$rtmpUrl/$streamKey")
-
-            } catch (e: Exception) {
-                mainActivity?.notifyFlutter("onStreamError", "${e.javaClass.simpleName}: ${e.message}")
-                stopSelf()
+            // Switch to internal audio (Android 10+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                genericStream.changeAudioSource(InternalAudioSource(mediaProjection!!))
             }
-        }.start()
+
+            // Start RTMP stream
+            genericStream.startStream("$rtmpUrl/$streamKey")
+
+        } catch (e: Exception) {
+            mainActivity?.notifyFlutter("onStreamError", "${e.javaClass.simpleName}: ${e.message}")
+            stopSelf()
+        }
 
         return START_NOT_STICKY
     }
@@ -110,10 +114,19 @@ class StreamService : Service(), ConnectChecker {
     override fun onAuthError() { mainActivity?.notifyFlutter("onStreamError", "Auth error") }
     override fun onAuthSuccess() {}
 
+    override fun onDestroy() {
+        super.onDestroy()
+        genericStream.release()
+        mediaProjection?.stop()
+        mediaProjection = null
+    }
+
     private fun stopStreaming() {
-        try { rtmpStream?.stopStream() } catch (_: Exception) {}
-        try { mediaProjection?.stop() } catch (_: Exception) {}
-        stopForeground(true); stopSelf()
+        if (genericStream.isStreaming) genericStream.stopStream()
+        mediaProjection?.stop()
+        mediaProjection = null
+        stopForeground(true)
+        stopSelf()
         mainActivity?.notifyFlutter("onStreamStopped")
     }
 
@@ -127,7 +140,7 @@ class StreamService : Service(), ConnectChecker {
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("🔴 YT Stream - LIVE")
-            .setContentText("Streaming screen + internal audio")
+            .setContentText("Streaming screen + internal audio to YouTube")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true).build()
     }
