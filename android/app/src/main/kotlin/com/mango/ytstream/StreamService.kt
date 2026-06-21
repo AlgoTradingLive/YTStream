@@ -49,8 +49,9 @@ class StreamService : Service(), ConnectChecker {
 
                 // prepareVideo(width, height, bitrate)
                 val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 2_000_000)
-                // prepareAudio(sampleRate, bitrate, isStereo) — correct order
-                val audioOk = rtmpDisplay!!.prepareAudio(44100, 128_000, true)
+
+                // prepareInternalAudio(bitrate, sampleRate, isStereo) — captures phone's internal audio
+                val audioOk = rtmpDisplay!!.prepareInternalAudio(128_000, 44100, true)
 
                 if (videoOk && audioOk) {
                     rtmpDisplay!!.startStream("$rtmpUrl/$streamKey")
