@@ -16,6 +16,7 @@ import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.sources.audio.InternalAudioSource
+import com.pedro.encoder.input.sources.audio.MicrophoneSource
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.rtmp.RtmpStream
 
@@ -59,58 +60,33 @@ class StreamService : Service(), ConnectChecker {
             }, Handler(Looper.getMainLooper()))
         }
 
-        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        wm.defaultDisplay.getMetrics(metrics)
-        val screenW = (metrics.widthPixels / 2) * 2
-        val screenH = (metrics.heightPixels / 2) * 2
-
         Thread {
             try {
+                // Key insight: prepareVideo and prepareAudio happen BEFORE
+                // sources are set — so InternalAudioSource shouldn't block prepare.
+                // The issue is InternalAudioSource needs MediaProjection which
+                // also powers ScreenSource. Use MicrophoneSource for prepare,
+                // then switch to InternalAudioSource after prepare.
+
                 rtmpStream = RtmpStream(applicationContext, this@StreamService)
 
-                // Try video configs
-                val videoConfigs = listOf(
-                    Triple(1280, 720, 2_000_000),
-                    Triple(854, 480, 1_000_000),
-                    Triple(640, 360, 500_000)
-                )
-
-                // Try audio configs
-                val audioConfigs = listOf(
-                    Triple(44100, true, 128_000),
-                    Triple(44100, false, 64_000),
-                    Triple(22050, true, 64_000),
-                    Triple(22050, false, 32_000)
-                )
-
-                var videoOk = false
-                var audioOk = false
-                var errorMsg = "Screen:${screenW}x${screenH}"
-
-                for ((vw, vh, vbr) in videoConfigs) {
-                    val result = try { rtmpStream!!.prepareVideo(vw, vh, vbr) } catch (e: Exception) { false }
-                    if (result) { videoOk = true; errorMsg += " V:${vw}x${vh}=OK"; break }
-                    else errorMsg += " V:${vw}x${vh}=FAIL"
-                }
-
-                for ((sr, stereo, abr) in audioConfigs) {
-                    val result = try { rtmpStream!!.prepareAudio(sr, stereo, abr) } catch (e: Exception) { false }
-                    if (result) { audioOk = true; errorMsg += " A:${sr}=OK"; break }
-                    else errorMsg += " A:${sr}=FAIL"
-                }
+                // Prepare with default sources first
+                val videoOk = rtmpStream!!.prepareVideo(1280, 720, 2_000_000)
+                val audioOk = rtmpStream!!.prepareAudio(44100, true, 128_000)
 
                 if (!videoOk || !audioOk) {
-                    mainActivity?.notifyFlutter("onStreamError", errorMsg)
+                    mainActivity?.notifyFlutter("onStreamError", "Prepare failed V:$videoOk A:$audioOk")
                     stopSelf()
                     return@Thread
                 }
 
+                // Now switch to screen + internal audio sources
                 val screenSource = ScreenSource(applicationContext, mediaProjection!!)
                 val audioSource = InternalAudioSource(mediaProjection!!)
+
                 rtmpStream!!.changeVideoSource(screenSource)
                 rtmpStream!!.changeAudioSource(audioSource)
+
                 rtmpStream!!.startStream("$rtmpUrl/$streamKey")
 
             } catch (e: Exception) {
