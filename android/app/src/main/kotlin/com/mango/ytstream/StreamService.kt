@@ -11,6 +11,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.DisplayMetrics
+import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.sources.audio.InternalAudioSource
@@ -59,33 +61,34 @@ class StreamService : Service(), ConnectChecker {
 
         Thread {
             try {
+                // Get actual screen size
+                val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+                val metrics = DisplayMetrics()
+                @Suppress("DEPRECATION")
+                wm.defaultDisplay.getMetrics(metrics)
+                // Use safe resolution - must be even numbers
+                val width = 1280
+                val height = 720
+
                 val screenSource = ScreenSource(applicationContext, mediaProjection!!)
                 val audioSource = InternalAudioSource(mediaProjection!!)
 
-                rtmpStream = RtmpStream(applicationContext, this)
+                rtmpStream = RtmpStream(applicationContext, this@StreamService)
                 rtmpStream!!.changeVideoSource(screenSource)
                 rtmpStream!!.changeAudioSource(audioSource)
 
-                val videoPrepared = rtmpStream!!.prepareVideo(
-                    width = 1280,
-                    height = 720,
-                    fps = 30,
-                    bitrate = 2_500_000
-                )
-                val audioPrepared = rtmpStream!!.prepareAudio(
-                    sampleRate = 44100,
-                    isStereo = true,
-                    bitrate = 128_000
-                )
+                // Use simple parameter versions
+                val videoPrepared = rtmpStream!!.prepareVideo(width, height, 2_500_000)
+                val audioPrepared = rtmpStream!!.prepareAudio(44100, true, 128_000)
 
                 if (videoPrepared && audioPrepared) {
                     rtmpStream!!.startStream("$rtmpUrl/$streamKey")
                 } else {
-                    mainActivity?.notifyFlutter("onStreamError", "Prepare failed")
+                    mainActivity?.notifyFlutter("onStreamError", "Prepare failed - check permissions")
                     stopSelf()
                 }
             } catch (e: Exception) {
-                mainActivity?.notifyFlutter("onStreamError", e.message ?: "Stream error")
+                mainActivity?.notifyFlutter("onStreamError", e.message ?: "Unknown error")
                 stopSelf()
             }
         }.start()
@@ -93,7 +96,6 @@ class StreamService : Service(), ConnectChecker {
         return START_NOT_STICKY
     }
 
-    // ConnectChecker callbacks
     override fun onConnectionStarted(url: String) {}
     override fun onConnectionSuccess() {
         mainActivity?.notifyFlutter("onStreamStarted")
@@ -109,7 +111,7 @@ class StreamService : Service(), ConnectChecker {
         mainActivity?.notifyFlutter("onStreamStopped")
     }
     override fun onAuthError() {
-        mainActivity?.notifyFlutter("onStreamError", "Auth error")
+        mainActivity?.notifyFlutter("onStreamError", "Auth error - check stream key")
     }
     override fun onAuthSuccess() {}
 
