@@ -45,7 +45,7 @@ class StreamService : Service(), ConnectChecker {
     private fun acquireWakeLock() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "YTStream::Lock").apply {
-            acquire(8 * 60 * 60 * 1000L) // 8 hours
+            acquire(8 * 60 * 60 * 1000L)
         }
     }
 
@@ -54,18 +54,12 @@ class StreamService : Service(), ConnectChecker {
         wakeLock = null
     }
 
-    // Screen off होऊनही stream चालू राहण्यासाठी
     private fun registerScreenReceiver() {
         screenReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                when (intent?.action) {
-                    Intent.ACTION_SCREEN_OFF -> {
-                        // Screen off झाली तरी WakeLock मुळे stream चालू राहतो
-                        rtmpDisplay?.glInterface?.setForceRender(true)
-                    }
-                    Intent.ACTION_SCREEN_ON -> {
-                        rtmpDisplay?.glInterface?.setForceRender(true)
-                    }
+                if (intent?.action == Intent.ACTION_SCREEN_OFF ||
+                    intent?.action == Intent.ACTION_SCREEN_ON) {
+                    rtmpDisplay?.glInterface?.setForceRender(true)
                 }
             }
         }
@@ -81,7 +75,7 @@ class StreamService : Service(), ConnectChecker {
             "STOP" -> { stopStreaming(); return START_NOT_STICKY }
             "PAUSE" -> {
                 rtmpDisplay?.disableAudio()
-                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "⏸ Paused - audio muted") }
+                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "⏸ Paused") }
                 return START_NOT_STICKY
             }
             "RESUME" -> {
@@ -95,6 +89,7 @@ class StreamService : Service(), ConnectChecker {
         val data = intent?.getParcelableExtra<Intent>("data") ?: return START_NOT_STICKY
         val rtmpUrl = intent.getStringExtra("rtmpUrl") ?: return START_NOT_STICKY
         val streamKey = intent.getStringExtra("streamKey") ?: return START_NOT_STICKY
+        val audioMode = intent.getStringExtra("audioMode") ?: "internal"
 
         startForeground(NOTIF_ID, buildNotification())
         acquireWakeLock()
@@ -107,24 +102,42 @@ class StreamService : Service(), ConnectChecker {
 
                 val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 2_000_000)
 
-                val audioConfigs = listOf(
-                    Triple(128_000, 44100, true),
-                    Triple(128_000, 44100, false),
-                    Triple(64_000, 44100, true),
-                    Triple(64_000, 32000, true),
-                    Triple(64_000, 16000, false),
-                )
-
-                var audioOk = false
-                for ((bitrate, sampleRate, stereo) in audioConfigs) {
-                    audioOk = try {
-                        rtmpDisplay!!.prepareInternalAudio(bitrate, sampleRate, stereo, false, false)
-                    } catch (e: Exception) { false }
-                    if (audioOk) break
-                }
-
-                if (!audioOk) {
-                    audioOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
+                val audioOk = if (audioMode == "mic_internal") {
+                    // Mic + Internal audio mix
+                    var ok = false
+                    val configs = listOf(
+                        Triple(128_000, 44100, true),
+                        Triple(64_000, 44100, true),
+                        Triple(64_000, 32000, true),
+                    )
+                    for ((bitrate, sampleRate, stereo) in configs) {
+                        ok = try {
+                            // Mix internal + mic
+                            rtmpDisplay!!.prepareInternalAudio(bitrate, sampleRate, stereo, true, false)
+                        } catch (e: Exception) { false }
+                        if (ok) break
+                    }
+                    // Fallback to mic only
+                    if (!ok) rtmpDisplay!!.prepareAudio(64_000, 44100, true)
+                    ok
+                } else {
+                    // Only internal audio
+                    var ok = false
+                    val configs = listOf(
+                        Triple(128_000, 44100, true),
+                        Triple(128_000, 44100, false),
+                        Triple(64_000, 44100, true),
+                        Triple(64_000, 32000, true),
+                        Triple(64_000, 16000, false),
+                    )
+                    for ((bitrate, sampleRate, stereo) in configs) {
+                        ok = try {
+                            rtmpDisplay!!.prepareInternalAudio(bitrate, sampleRate, stereo, false, false)
+                        } catch (e: Exception) { false }
+                        if (ok) break
+                    }
+                    if (!ok) rtmpDisplay!!.prepareAudio(64_000, 44100, true)
+                    ok
                 }
 
                 if (videoOk && audioOk) {
@@ -185,7 +198,7 @@ class StreamService : Service(), ConnectChecker {
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("🔴 YT Stream - LIVE")
-            .setContentText("Screen off करता येतो - stream चालू राहील")
+            .setContentText("Streaming to YouTube")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true).build()
     }
