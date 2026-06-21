@@ -32,9 +32,7 @@ class StreamService : Service(), ConnectChecker {
     }
 
     private fun notify(msg: String) {
-        mainHandler.post {
-            mainActivity?.notifyFlutter("onStreamError", msg)
-        }
+        mainHandler.post { mainActivity?.notifyFlutter("onStreamError", msg) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -50,32 +48,46 @@ class StreamService : Service(), ConnectChecker {
 
         startForeground(NOTIF_ID, buildNotification())
 
-        notify("Step1: Init...")
-
         mainHandler.post {
             try {
-                notify("Step2: Creating display...")
                 rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
                 rtmpDisplay!!.glInterface.setForceRender(true)
                 rtmpDisplay!!.setIntentResult(resultCode, data)
 
-                notify("Step3: PrepareVideo...")
                 val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 2_000_000)
 
-                notify("Step4: PrepareAudio...")
-                val audioOk = rtmpDisplay!!.prepareInternalAudio(128_000, 44100, true)
+                // Try multiple audio configs for Samsung compatibility
+                val audioConfigs = listOf(
+                    Triple(128_000, 44100, true),
+                    Triple(128_000, 44100, false),
+                    Triple(64_000, 44100, true),
+                    Triple(64_000, 32000, true),
+                    Triple(64_000, 16000, true),
+                    Triple(64_000, 16000, false),
+                )
 
-                notify("Step5: V:$videoOk A:$audioOk")
+                var audioOk = false
+                for ((bitrate, sampleRate, stereo) in audioConfigs) {
+                    audioOk = try {
+                        rtmpDisplay!!.prepareInternalAudio(bitrate, sampleRate, stereo, false, false)
+                    } catch (e: Exception) { false }
+                    if (audioOk) break
+                }
+
+                // Samsung fallback: use mic if internal audio fails
+                if (!audioOk) {
+                    notify("Internal audio failed on this device, trying mic...")
+                    audioOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
+                }
 
                 if (videoOk && audioOk) {
-                    notify("Step6: Starting stream...")
                     rtmpDisplay!!.startStream("$rtmpUrl/$streamKey")
                 } else {
                     notify("Prepare failed V:$videoOk A:$audioOk")
                     stopSelf()
                 }
             } catch (e: Exception) {
-                notify("EX: ${e.javaClass.simpleName}: ${e.message}")
+                notify("Error: ${e.javaClass.simpleName}: ${e.message}")
                 stopSelf()
             }
         }
@@ -83,11 +95,19 @@ class StreamService : Service(), ConnectChecker {
         return START_NOT_STICKY
     }
 
-    override fun onConnectionStarted(url: String) { notify("Connected!") }
-    override fun onConnectionSuccess() { mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") } }
-    override fun onConnectionFailed(reason: String) { notify("FAILED: $reason"); stopSelf() }
-    override fun onNewBitrate(bitrate: Long) { mainHandler.post { mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate/1000}") } }
-    override fun onDisconnect() { notify("Disconnected"); stopSelf() }
+    override fun onConnectionStarted(url: String) {}
+    override fun onConnectionSuccess() {
+        mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
+    }
+    override fun onConnectionFailed(reason: String) {
+        notify("Failed: $reason"); stopSelf()
+    }
+    override fun onNewBitrate(bitrate: Long) {
+        mainHandler.post { mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate / 1000}") }
+    }
+    override fun onDisconnect() {
+        notify("Disconnected"); stopSelf()
+    }
     override fun onAuthError() { notify("Auth error") }
     override fun onAuthSuccess() {}
 
@@ -112,7 +132,7 @@ class StreamService : Service(), ConnectChecker {
 
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("🔴 YT Stream")
+            .setContentTitle("🔴 YT Stream - LIVE")
             .setContentText("Streaming to YouTube")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true).build()
