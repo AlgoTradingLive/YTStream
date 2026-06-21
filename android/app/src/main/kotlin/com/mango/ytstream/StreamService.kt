@@ -70,28 +70,39 @@ class StreamService : Service(), ConnectChecker {
             try {
                 rtmpStream = RtmpStream(applicationContext, this@StreamService)
 
-                // Try multiple resolutions — lowest first for reliability
-                val resolutions = listOf(
-                    Triple(screenW, screenH, 2_500_000),
+                // Try video configs
+                val videoConfigs = listOf(
                     Triple(1280, 720, 2_000_000),
                     Triple(854, 480, 1_000_000),
                     Triple(640, 360, 500_000)
                 )
 
-                var videoPrepared = false
-                var usedRes = ""
-                for ((w, h, br) in resolutions) {
-                    videoPrepared = rtmpStream!!.prepareVideo(w, h, br)
-                    if (videoPrepared) {
-                        usedRes = "${w}x${h}"
-                        break
-                    }
+                // Try audio configs
+                val audioConfigs = listOf(
+                    Triple(44100, true, 128_000),
+                    Triple(44100, false, 64_000),
+                    Triple(22050, true, 64_000),
+                    Triple(22050, false, 32_000)
+                )
+
+                var videoOk = false
+                var audioOk = false
+                var errorMsg = "Screen:${screenW}x${screenH}"
+
+                for ((vw, vh, vbr) in videoConfigs) {
+                    val result = try { rtmpStream!!.prepareVideo(vw, vh, vbr) } catch (e: Exception) { false }
+                    if (result) { videoOk = true; errorMsg += " V:${vw}x${vh}=OK"; break }
+                    else errorMsg += " V:${vw}x${vh}=FAIL"
                 }
 
-                val audioPrepared = rtmpStream!!.prepareAudio(44100, true, 128_000)
+                for ((sr, stereo, abr) in audioConfigs) {
+                    val result = try { rtmpStream!!.prepareAudio(sr, stereo, abr) } catch (e: Exception) { false }
+                    if (result) { audioOk = true; errorMsg += " A:${sr}=OK"; break }
+                    else errorMsg += " A:${sr}=FAIL"
+                }
 
-                if (!videoPrepared || !audioPrepared) {
-                    mainActivity?.notifyFlutter("onStreamError", "Encoder failed. Screen:${screenW}x${screenH} video:$videoPrepared audio:$audioPrepared")
+                if (!videoOk || !audioOk) {
+                    mainActivity?.notifyFlutter("onStreamError", errorMsg)
                     stopSelf()
                     return@Thread
                 }
@@ -100,7 +111,6 @@ class StreamService : Service(), ConnectChecker {
                 val audioSource = InternalAudioSource(mediaProjection!!)
                 rtmpStream!!.changeVideoSource(screenSource)
                 rtmpStream!!.changeAudioSource(audioSource)
-
                 rtmpStream!!.startStream("$rtmpUrl/$streamKey")
 
             } catch (e: Exception) {
@@ -115,8 +125,7 @@ class StreamService : Service(), ConnectChecker {
     override fun onConnectionStarted(url: String) {}
     override fun onConnectionSuccess() { mainActivity?.notifyFlutter("onStreamStarted") }
     override fun onConnectionFailed(reason: String) {
-        mainActivity?.notifyFlutter("onStreamError", reason)
-        stopSelf()
+        mainActivity?.notifyFlutter("onStreamError", reason); stopSelf()
     }
     override fun onNewBitrate(bitrate: Long) {
         mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate / 1000}")
@@ -128,8 +137,7 @@ class StreamService : Service(), ConnectChecker {
     private fun stopStreaming() {
         try { rtmpStream?.stopStream() } catch (_: Exception) {}
         try { mediaProjection?.stop() } catch (_: Exception) {}
-        stopForeground(true)
-        stopSelf()
+        stopForeground(true); stopSelf()
         mainActivity?.notifyFlutter("onStreamStopped")
     }
 
