@@ -47,9 +47,10 @@ class StreamService : Service(), ConnectChecker {
                 rtmpDisplay!!.glInterface.setForceRender(true)
                 rtmpDisplay!!.setIntentResult(resultCode, data)
 
-                // 3-param version: width, height, bitrate
+                // prepareVideo(width, height, bitrate)
                 val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 2_000_000)
-                val audioOk = rtmpDisplay!!.prepareAudio(44100, true, 128_000)
+                // prepareAudio(sampleRate, bitrate, isStereo) — correct order
+                val audioOk = rtmpDisplay!!.prepareAudio(44100, 128_000, true)
 
                 if (videoOk && audioOk) {
                     rtmpDisplay!!.startStream("$rtmpUrl/$streamKey")
