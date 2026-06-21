@@ -40,25 +40,31 @@ class StreamService : Service(), ConnectChecker {
 
     private fun acquireWakeLock() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "YTStream::StreamingLock"
-        ).apply {
-            acquire(6 * 60 * 60 * 1000L) // 6 hours max
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "YTStream::Lock").apply {
+            acquire(6 * 60 * 60 * 1000L)
         }
     }
 
     private fun releaseWakeLock() {
-        try {
-            if (wakeLock?.isHeld == true) wakeLock?.release()
-        } catch (_: Exception) {}
+        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
         wakeLock = null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "STOP") {
-            stopStreaming()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            "STOP" -> { stopStreaming(); return START_NOT_STICKY }
+            "PAUSE" -> {
+                // Mute audio on pause — viewers hear silence
+                rtmpDisplay?.stopAudio()
+                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "⏸ Paused") }
+                return START_NOT_STICKY
+            }
+            "RESUME" -> {
+                // Resume audio
+                rtmpDisplay?.startAudio()
+                mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
+                return START_NOT_STICKY
+            }
         }
 
         val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
@@ -67,7 +73,7 @@ class StreamService : Service(), ConnectChecker {
         val streamKey = intent.getStringExtra("streamKey") ?: return START_NOT_STICKY
 
         startForeground(NOTIF_ID, buildNotification())
-        acquireWakeLock() // screen off असताना पण चालेल
+        acquireWakeLock()
 
         mainHandler.post {
             try {
@@ -77,7 +83,6 @@ class StreamService : Service(), ConnectChecker {
 
                 val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 2_000_000)
 
-                // Try internal audio configs
                 val audioConfigs = listOf(
                     Triple(128_000, 44100, true),
                     Triple(128_000, 44100, false),
@@ -94,7 +99,6 @@ class StreamService : Service(), ConnectChecker {
                     if (audioOk) break
                 }
 
-                // Fallback to mic if internal audio fails (Samsung etc)
                 if (!audioOk) {
                     audioOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
                 }
@@ -121,17 +125,13 @@ class StreamService : Service(), ConnectChecker {
         mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
     }
     override fun onConnectionFailed(reason: String) {
-        notify("Failed: $reason")
-        releaseWakeLock()
-        stopSelf()
+        notify("Failed: $reason"); releaseWakeLock(); stopSelf()
     }
     override fun onNewBitrate(bitrate: Long) {
         mainHandler.post { mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate / 1000}") }
     }
     override fun onDisconnect() {
-        notify("Disconnected")
-        releaseWakeLock()
-        stopSelf()
+        notify("Disconnected"); releaseWakeLock(); stopSelf()
     }
     override fun onAuthError() { notify("Auth error") }
     override fun onAuthSuccess() {}
@@ -160,7 +160,7 @@ class StreamService : Service(), ConnectChecker {
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("🔴 YT Stream - LIVE")
-            .setContentText("Streaming to YouTube — screen off करता येतो")
+            .setContentText("Streaming to YouTube")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true).build()
     }
