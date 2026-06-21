@@ -59,41 +59,37 @@ class StreamService : Service(), ConnectChecker {
             }, Handler(Looper.getMainLooper()))
         }
 
-        // Get actual screen dimensions
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")
         wm.defaultDisplay.getMetrics(metrics)
-        // Make even numbers (required by encoder)
         val screenW = (metrics.widthPixels / 2) * 2
         val screenH = (metrics.heightPixels / 2) * 2
 
         Thread {
             try {
-                val screenSource = ScreenSource(applicationContext, mediaProjection!!)
-                val audioSource = InternalAudioSource(mediaProjection!!)
-
+                // Step 1: Create RtmpStream first
                 rtmpStream = RtmpStream(applicationContext, this@StreamService)
-                rtmpStream!!.changeVideoSource(screenSource)
-                rtmpStream!!.changeAudioSource(audioSource)
 
-                // Use actual screen size so ScreenSource matches
+                // Step 2: prepare BEFORE changing sources
                 val videoPrepared = rtmpStream!!.prepareVideo(screenW, screenH, 2_500_000)
                 val audioPrepared = rtmpStream!!.prepareAudio(44100, true, 128_000)
 
-                if (videoPrepared && audioPrepared) {
-                    rtmpStream!!.startStream("$rtmpUrl/$streamKey")
-                } else {
-                    // Try lower resolution fallback
-                    val v2 = rtmpStream!!.prepareVideo(1280, 720, 2_000_000)
-                    val a2 = rtmpStream!!.prepareAudio(44100, true, 128_000)
-                    if (v2 && a2) {
-                        rtmpStream!!.startStream("$rtmpUrl/$streamKey")
-                    } else {
-                        mainActivity?.notifyFlutter("onStreamError", "Encoder init failed (${screenW}x${screenH})")
-                        stopSelf()
-                    }
+                if (!videoPrepared || !audioPrepared) {
+                    mainActivity?.notifyFlutter("onStreamError", "Encoder init failed")
+                    stopSelf()
+                    return@Thread
                 }
+
+                // Step 3: change sources AFTER prepare
+                val screenSource = ScreenSource(applicationContext, mediaProjection!!)
+                val audioSource = InternalAudioSource(mediaProjection!!)
+                rtmpStream!!.changeVideoSource(screenSource)
+                rtmpStream!!.changeAudioSource(audioSource)
+
+                // Step 4: start stream
+                rtmpStream!!.startStream("$rtmpUrl/$streamKey")
+
             } catch (e: Exception) {
                 mainActivity?.notifyFlutter("onStreamError", e.message ?: "Unknown error")
                 stopSelf()
@@ -143,7 +139,7 @@ class StreamService : Service(), ConnectChecker {
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("🔴 YT Stream - LIVE")
-            .setContentText("Streaming screen + internal audio to YouTube")
+            .setContentText("Streaming screen + internal audio")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .build()
