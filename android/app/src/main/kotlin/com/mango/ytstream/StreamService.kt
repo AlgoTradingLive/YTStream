@@ -80,12 +80,12 @@ class StreamService : Service(), ConnectChecker {
         when (intent?.action) {
             "STOP" -> { stopStreaming(); return START_NOT_STICKY }
             "PAUSE" -> {
-                rtmpDisplay?.mute()
+                rtmpDisplay?.disableAudio()
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "⏸ Paused - audio muted") }
                 return START_NOT_STICKY
             }
             "RESUME" -> {
-                rtmpDisplay?.unMute()
+                rtmpDisplay?.enableAudio()
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
                 return START_NOT_STICKY
             }
