@@ -59,17 +59,17 @@ class StreamService : Service(), ConnectChecker {
             }, Handler(Looper.getMainLooper()))
         }
 
+        // Get actual screen dimensions
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm.defaultDisplay.getMetrics(metrics)
+        // Make even numbers (required by encoder)
+        val screenW = (metrics.widthPixels / 2) * 2
+        val screenH = (metrics.heightPixels / 2) * 2
+
         Thread {
             try {
-                // Get actual screen size
-                val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-                val metrics = DisplayMetrics()
-                @Suppress("DEPRECATION")
-                wm.defaultDisplay.getMetrics(metrics)
-                // Use safe resolution - must be even numbers
-                val width = 1280
-                val height = 720
-
                 val screenSource = ScreenSource(applicationContext, mediaProjection!!)
                 val audioSource = InternalAudioSource(mediaProjection!!)
 
@@ -77,15 +77,22 @@ class StreamService : Service(), ConnectChecker {
                 rtmpStream!!.changeVideoSource(screenSource)
                 rtmpStream!!.changeAudioSource(audioSource)
 
-                // Use simple parameter versions
-                val videoPrepared = rtmpStream!!.prepareVideo(width, height, 2_500_000)
+                // Use actual screen size so ScreenSource matches
+                val videoPrepared = rtmpStream!!.prepareVideo(screenW, screenH, 2_500_000)
                 val audioPrepared = rtmpStream!!.prepareAudio(44100, true, 128_000)
 
                 if (videoPrepared && audioPrepared) {
                     rtmpStream!!.startStream("$rtmpUrl/$streamKey")
                 } else {
-                    mainActivity?.notifyFlutter("onStreamError", "Prepare failed - check permissions")
-                    stopSelf()
+                    // Try lower resolution fallback
+                    val v2 = rtmpStream!!.prepareVideo(1280, 720, 2_000_000)
+                    val a2 = rtmpStream!!.prepareAudio(44100, true, 128_000)
+                    if (v2 && a2) {
+                        rtmpStream!!.startStream("$rtmpUrl/$streamKey")
+                    } else {
+                        mainActivity?.notifyFlutter("onStreamError", "Encoder init failed (${screenW}x${screenH})")
+                        stopSelf()
+                    }
                 }
             } catch (e: Exception) {
                 mainActivity?.notifyFlutter("onStreamError", e.message ?: "Unknown error")
