@@ -68,30 +68,43 @@ class StreamService : Service(), ConnectChecker {
 
         Thread {
             try {
-                // Step 1: Create RtmpStream first
                 rtmpStream = RtmpStream(applicationContext, this@StreamService)
 
-                // Step 2: prepare BEFORE changing sources
-                val videoPrepared = rtmpStream!!.prepareVideo(screenW, screenH, 2_500_000)
+                // Try multiple resolutions — lowest first for reliability
+                val resolutions = listOf(
+                    Triple(screenW, screenH, 2_500_000),
+                    Triple(1280, 720, 2_000_000),
+                    Triple(854, 480, 1_000_000),
+                    Triple(640, 360, 500_000)
+                )
+
+                var videoPrepared = false
+                var usedRes = ""
+                for ((w, h, br) in resolutions) {
+                    videoPrepared = rtmpStream!!.prepareVideo(w, h, br)
+                    if (videoPrepared) {
+                        usedRes = "${w}x${h}"
+                        break
+                    }
+                }
+
                 val audioPrepared = rtmpStream!!.prepareAudio(44100, true, 128_000)
 
                 if (!videoPrepared || !audioPrepared) {
-                    mainActivity?.notifyFlutter("onStreamError", "Encoder init failed")
+                    mainActivity?.notifyFlutter("onStreamError", "Encoder failed. Screen:${screenW}x${screenH} video:$videoPrepared audio:$audioPrepared")
                     stopSelf()
                     return@Thread
                 }
 
-                // Step 3: change sources AFTER prepare
                 val screenSource = ScreenSource(applicationContext, mediaProjection!!)
                 val audioSource = InternalAudioSource(mediaProjection!!)
                 rtmpStream!!.changeVideoSource(screenSource)
                 rtmpStream!!.changeAudioSource(audioSource)
 
-                // Step 4: start stream
                 rtmpStream!!.startStream("$rtmpUrl/$streamKey")
 
             } catch (e: Exception) {
-                mainActivity?.notifyFlutter("onStreamError", e.message ?: "Unknown error")
+                mainActivity?.notifyFlutter("onStreamError", "${e.javaClass.simpleName}: ${e.message}")
                 stopSelf()
             }
         }.start()
@@ -100,9 +113,7 @@ class StreamService : Service(), ConnectChecker {
     }
 
     override fun onConnectionStarted(url: String) {}
-    override fun onConnectionSuccess() {
-        mainActivity?.notifyFlutter("onStreamStarted")
-    }
+    override fun onConnectionSuccess() { mainActivity?.notifyFlutter("onStreamStarted") }
     override fun onConnectionFailed(reason: String) {
         mainActivity?.notifyFlutter("onStreamError", reason)
         stopSelf()
@@ -110,12 +121,8 @@ class StreamService : Service(), ConnectChecker {
     override fun onNewBitrate(bitrate: Long) {
         mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate / 1000}")
     }
-    override fun onDisconnect() {
-        mainActivity?.notifyFlutter("onStreamStopped")
-    }
-    override fun onAuthError() {
-        mainActivity?.notifyFlutter("onStreamError", "Auth error - check stream key")
-    }
+    override fun onDisconnect() { mainActivity?.notifyFlutter("onStreamStopped") }
+    override fun onAuthError() { mainActivity?.notifyFlutter("onStreamError", "Auth error") }
     override fun onAuthSuccess() {}
 
     private fun stopStreaming() {
@@ -128,11 +135,8 @@ class StreamService : Service(), ConnectChecker {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID, "YT Stream", NotificationManager.IMPORTANCE_LOW
-            ).apply { description = "Streaming to YouTube" }
-            val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-            nm.createNotificationChannel(channel)
+            val channel = NotificationChannel(CHANNEL_ID, "YT Stream", NotificationManager.IMPORTANCE_LOW)
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         }
     }
 
@@ -141,7 +145,6 @@ class StreamService : Service(), ConnectChecker {
             .setContentTitle("🔴 YT Stream - LIVE")
             .setContentText("Streaming screen + internal audio")
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setOngoing(true)
-            .build()
+            .setOngoing(true).build()
     }
 }
