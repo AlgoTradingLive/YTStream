@@ -63,11 +63,10 @@ class StreamService : Service(), ConnectChecker {
                 }
             }
         }
-        val filter = IntentFilter().apply {
+        registerReceiver(screenReceiver, IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
-        }
-        registerReceiver(screenReceiver, filter)
+        })
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -79,6 +78,16 @@ class StreamService : Service(), ConnectChecker {
                 return START_NOT_STICKY
             }
             "RESUME" -> {
+                rtmpDisplay?.enableAudio()
+                mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
+                return START_NOT_STICKY
+            }
+            "MUTE" -> {
+                rtmpDisplay?.disableAudio()
+                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "🔇 Muted") }
+                return START_NOT_STICKY
+            }
+            "UNMUTE" -> {
                 rtmpDisplay?.enableAudio()
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
                 return START_NOT_STICKY
@@ -102,42 +111,26 @@ class StreamService : Service(), ConnectChecker {
 
                 val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 2_000_000)
 
-                val audioOk = if (audioMode == "mic_internal") {
-                    // Mic + Internal audio mix
-                    var ok = false
-                    val configs = listOf(
-                        Triple(128_000, 44100, true),
-                        Triple(64_000, 44100, true),
-                        Triple(64_000, 32000, true),
-                    )
-                    for ((bitrate, sampleRate, stereo) in configs) {
-                        ok = try {
-                            // Mix internal + mic
-                            rtmpDisplay!!.prepareInternalAudio(bitrate, sampleRate, stereo, true, false)
-                        } catch (e: Exception) { false }
-                        if (ok) break
-                    }
-                    // Fallback to mic only
-                    if (!ok) rtmpDisplay!!.prepareAudio(64_000, 44100, true)
-                    ok
-                } else {
-                    // Only internal audio
-                    var ok = false
-                    val configs = listOf(
-                        Triple(128_000, 44100, true),
-                        Triple(128_000, 44100, false),
-                        Triple(64_000, 44100, true),
-                        Triple(64_000, 32000, true),
-                        Triple(64_000, 16000, false),
-                    )
-                    for ((bitrate, sampleRate, stereo) in configs) {
-                        ok = try {
-                            rtmpDisplay!!.prepareInternalAudio(bitrate, sampleRate, stereo, false, false)
-                        } catch (e: Exception) { false }
-                        if (ok) break
-                    }
-                    if (!ok) rtmpDisplay!!.prepareAudio(64_000, 44100, true)
-                    ok
+                var audioOk = false
+                val configs = listOf(
+                    Triple(128_000, 44100, true),
+                    Triple(128_000, 44100, false),
+                    Triple(64_000, 44100, true),
+                    Triple(64_000, 32000, true),
+                    Triple(64_000, 16000, false),
+                )
+
+                val echoCanceler = audioMode == "mic_internal"
+
+                for ((bitrate, sampleRate, stereo) in configs) {
+                    audioOk = try {
+                        rtmpDisplay!!.prepareInternalAudio(bitrate, sampleRate, stereo, echoCanceler, false)
+                    } catch (e: Exception) { false }
+                    if (audioOk) break
+                }
+
+                if (!audioOk) {
+                    audioOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
                 }
 
                 if (videoOk && audioOk) {
