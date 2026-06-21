@@ -21,6 +21,7 @@ class MainActivity : FlutterActivity() {
     private var pendingResult: MethodChannel.Result? = null
     private var pendingRtmpUrl: String? = null
     private var pendingStreamKey: String? = null
+    private var pendingAudioMode: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -28,17 +29,15 @@ class MainActivity : FlutterActivity() {
         methodChannel!!.setMethodCallHandler { call, result ->
             when (call.method) {
                 "startStream" -> {
-                    val rtmpUrl = call.argument<String>("rtmpUrl") ?: ""
-                    val streamKey = call.argument<String>("streamKey") ?: ""
-                    pendingRtmpUrl = rtmpUrl
-                    pendingStreamKey = streamKey
+                    pendingRtmpUrl = call.argument("rtmpUrl")
+                    pendingStreamKey = call.argument("streamKey")
+                    pendingAudioMode = call.argument("audioMode") ?: "internal"
                     pendingResult = result
-
-                    // Request overlay permission first if needed
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:$packageName"))
-                        startActivityForResult(intent, REQUEST_OVERLAY)
+                        startActivityForResult(
+                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")),
+                            REQUEST_OVERLAY
+                        )
                     } else {
                         requestMediaProjection()
                     }
@@ -59,11 +58,8 @@ class MainActivity : FlutterActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-
         when (requestCode) {
-            REQUEST_OVERLAY -> {
-                requestMediaProjection()
-            }
+            REQUEST_OVERLAY -> requestMediaProjection()
             REQUEST_MEDIA_PROJECTION -> {
                 if (resultCode == Activity.RESULT_OK && data != null) {
                     val intent = Intent(this, StreamService::class.java).apply {
@@ -71,18 +67,16 @@ class MainActivity : FlutterActivity() {
                         putExtra("data", data)
                         putExtra("rtmpUrl", pendingRtmpUrl)
                         putExtra("streamKey", pendingStreamKey)
+                        putExtra("audioMode", pendingAudioMode)
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         startForegroundService(intent)
                     } else {
                         startService(intent)
                     }
-
-                    // Start floating stop button
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)) {
                         startService(Intent(this, FloatingButtonService::class.java))
                     }
-
                     pendingResult?.success(null)
                 } else {
                     pendingResult?.error("CANCELLED", "Permission denied", null)
@@ -94,8 +88,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun stopStreamService() {
-        val intent = Intent(this, StreamService::class.java).apply { action = "STOP" }
-        startService(intent)
+        startService(Intent(this, StreamService::class.java).apply { action = "STOP" })
         stopService(Intent(this, FloatingButtonService::class.java))
     }
 
