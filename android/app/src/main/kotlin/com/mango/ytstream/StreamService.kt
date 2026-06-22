@@ -15,8 +15,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
-import android.util.DisplayMetrics
-import android.view.WindowManager
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
@@ -40,7 +38,10 @@ class StreamService : Service(), ConnectChecker {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wakeLock: PowerManager.WakeLock? = null
     private var screenReceiver: BroadcastReceiver? = null
-    private var mediaProjection: MediaProjection? = null
+
+    // Store intent result for RtmpDisplay
+    private var savedResultCode: Int = -1
+    private var savedData: Intent? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -119,29 +120,23 @@ class StreamService : Service(), ConnectChecker {
         val audioMode = intent.getStringExtra("audioMode") ?: "internal"
         val orientation = intent.getStringExtra("orientation") ?: "landscape"
 
+        savedResultCode = resultCode
+        savedData = data
+
         startForeground(NOTIF_ID, buildNotification())
         acquireWakeLock()
 
-        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjection = manager.getMediaProjection(resultCode, data)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            mediaProjection!!.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() { stopStreaming() }
-            }, mainHandler)
-        }
-
-        // Video resolution based on orientation
         val isPortrait = orientation == "portrait"
         val vWidth = if (isPortrait) 720 else 1280
         val vHeight = if (isPortrait) 1280 else 720
+        val fullUrl = "$rtmpUrl/$streamKey"
 
         mainHandler.post {
             try {
                 if (audioMode == "mic_internal" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startWithMixedAudio("$rtmpUrl/$streamKey", vWidth, vHeight)
+                    startWithMixedAudio(fullUrl, vWidth, vHeight, resultCode, data)
                 } else {
-                    startWithInternalOnly(resultCode, data, "$rtmpUrl/$streamKey", vWidth, vHeight)
+                    startWithInternalOnly(fullUrl, vWidth, vHeight, resultCode, data)
                 }
             } catch (e: Exception) {
                 notify("Error: ${e.message}")
@@ -154,9 +149,18 @@ class StreamService : Service(), ConnectChecker {
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun startWithMixedAudio(fullUrl: String, w: Int, h: Int) {
-        mixAudioSource = MixAudioSource(mediaProjection!!)
-        val screenSource = ScreenSource(applicationContext, mediaProjection!!)
+    private fun startWithMixedAudio(fullUrl: String, w: Int, h: Int, resultCode: Int, data: Intent) {
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        val mediaProjection = manager.getMediaProjection(resultCode, data)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            mediaProjection.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() { stopStreaming() }
+            }, mainHandler)
+        }
+
+        mixAudioSource = MixAudioSource(mediaProjection)
+        val screenSource = ScreenSource(applicationContext, mediaProjection)
 
         genericStream = GenericStream(applicationContext, this, screenSource, mixAudioSource!!).apply {
             getGlInterface().setForceRender(true)
@@ -168,19 +172,28 @@ class StreamService : Service(), ConnectChecker {
         if (videoOk && audioOk) {
             genericStream!!.startStream(fullUrl)
         } else {
-            // Fallback to internal only
-            notify("Mic+Internal failed, switching to internal only...")
+            notify("Mic+Internal failed V:$videoOk A:$audioOk, trying internal only...")
             genericStream?.release()
             genericStream = null
             mixAudioSource = null
-            startWithInternalOnly(0, Intent(), fullUrl, w, h)
+            mediaProjection.stop()
+            // Restart with internal only using saved credentials
+            startService(Intent(applicationContext, StreamService::class.java).apply {
+                putExtra("resultCode", savedResultCode)
+                putExtra("data", savedData)
+                putExtra("rtmpUrl", fullUrl.substringBeforeLast("/"))
+                putExtra("streamKey", fullUrl.substringAfterLast("/"))
+                putExtra("audioMode", "internal")
+                putExtra("orientation", if (w > h) "landscape" else "portrait")
+            })
+            stopSelf()
         }
     }
 
-    private fun startWithInternalOnly(resultCode: Int, data: Intent, fullUrl: String, w: Int, h: Int) {
+    private fun startWithInternalOnly(fullUrl: String, w: Int, h: Int, resultCode: Int, data: Intent) {
         rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
         rtmpDisplay!!.glInterface.setForceRender(true)
-        if (resultCode != 0) rtmpDisplay!!.setIntentResult(resultCode, data)
+        rtmpDisplay!!.setIntentResult(resultCode, data)
 
         val videoOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000)
         var audioOk = false
@@ -190,8 +203,9 @@ class StreamService : Service(), ConnectChecker {
             Triple(64_000, 44100, true),
             Triple(64_000, 32000, true),
         )) {
-            audioOk = try { rtmpDisplay!!.prepareInternalAudio(bitrate, sampleRate, stereo, false, false) }
-                      catch (e: Exception) { false }
+            audioOk = try {
+                rtmpDisplay!!.prepareInternalAudio(bitrate, sampleRate, stereo, false, false)
+            } catch (e: Exception) { false }
             if (audioOk) break
         }
         if (!audioOk) audioOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
