@@ -38,10 +38,10 @@ class StreamService : Service(), ConnectChecker {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wakeLock: PowerManager.WakeLock? = null
     private var screenReceiver: BroadcastReceiver? = null
-
-    // Store intent result for RtmpDisplay
-    private var savedResultCode: Int = -1
+    private var savedResultCode = -1
     private var savedData: Intent? = null
+    private var savedFullUrl = ""
+    private var savedOrientation = "landscape"
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -80,34 +80,35 @@ class StreamService : Service(), ConnectChecker {
         })
     }
 
+    private fun getMediaProjection(resultCode: Int, data: Intent): MediaProjection {
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        return manager.getMediaProjection(resultCode, data)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             "STOP" -> { stopStreaming(); return START_NOT_STICKY }
             "PAUSE" -> {
                 rtmpDisplay?.disableAudio()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-                    genericStream?.changeAudioSource(SilenceAudioSource())
+                genericStream?.changeAudioSource(SilenceAudioSource())
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "⏸ Paused") }
                 return START_NOT_STICKY
             }
             "RESUME" -> {
                 rtmpDisplay?.enableAudio()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && mixAudioSource != null)
-                    genericStream?.changeAudioSource(mixAudioSource!!)
+                mixAudioSource?.let { genericStream?.changeAudioSource(it) }
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
                 return START_NOT_STICKY
             }
             "MUTE" -> {
                 rtmpDisplay?.disableAudio()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-                    genericStream?.changeAudioSource(SilenceAudioSource())
+                genericStream?.changeAudioSource(SilenceAudioSource())
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "🔇 Muted") }
                 return START_NOT_STICKY
             }
             "UNMUTE" -> {
                 rtmpDisplay?.enableAudio()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && mixAudioSource != null)
-                    genericStream?.changeAudioSource(mixAudioSource!!)
+                mixAudioSource?.let { genericStream?.changeAudioSource(it) }
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
                 return START_NOT_STICKY
             }
@@ -122,21 +123,22 @@ class StreamService : Service(), ConnectChecker {
 
         savedResultCode = resultCode
         savedData = data
+        savedOrientation = orientation
+        savedFullUrl = "$rtmpUrl/$streamKey"
 
         startForeground(NOTIF_ID, buildNotification())
         acquireWakeLock()
 
         val isPortrait = orientation == "portrait"
-        val vWidth = if (isPortrait) 720 else 1280
-        val vHeight = if (isPortrait) 1280 else 720
-        val fullUrl = "$rtmpUrl/$streamKey"
+        val vW = if (isPortrait) 720 else 1280
+        val vH = if (isPortrait) 1280 else 720
 
         mainHandler.post {
             try {
                 if (audioMode == "mic_internal" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startWithMixedAudio(fullUrl, vWidth, vHeight, resultCode, data)
+                    startMixedAudio(savedFullUrl, vW, vH, resultCode, data)
                 } else {
-                    startWithInternalOnly(fullUrl, vWidth, vHeight, resultCode, data)
+                    startInternalOnly(savedFullUrl, vW, vH, resultCode, data)
                 }
             } catch (e: Exception) {
                 notify("Error: ${e.message}")
@@ -149,9 +151,8 @@ class StreamService : Service(), ConnectChecker {
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun startWithMixedAudio(fullUrl: String, w: Int, h: Int, resultCode: Int, data: Intent) {
-        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val mp: MediaProjection = manager.getMediaProjection(resultCode, data)
+    private fun startMixedAudio(url: String, w: Int, h: Int, rc: Int, d: Intent) {
+        val mp: MediaProjection = getMediaProjection(rc, d)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             mp.registerCallback(object : MediaProjection.Callback() {
@@ -159,61 +160,52 @@ class StreamService : Service(), ConnectChecker {
             }, mainHandler)
         }
 
-        mixAudioSource = MixAudioSource(mp)
-        val screenSource = ScreenSource(applicationContext, mp)
+        val mix = MixAudioSource(mp)
+        val screen = ScreenSource(applicationContext, mp)
+        mixAudioSource = mix
 
-        genericStream = GenericStream(applicationContext, this, screenSource, mixAudioSource!!).apply {
+        genericStream = GenericStream(applicationContext, this, screen, mix).apply {
             getGlInterface().setForceRender(true)
         }
 
-        val videoOk = genericStream!!.prepareVideo(w, h, 2_000_000)
-        val audioOk = genericStream!!.prepareAudio(44100, true, 128_000)
+        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000)
+        val aOk = genericStream!!.prepareAudio(44100, true, 128_000)
 
-        if (videoOk && audioOk) {
-            genericStream!!.startStream(fullUrl)
+        if (vOk && aOk) {
+            genericStream!!.startStream(url)
         } else {
-            notify("Mic+Internal failed V:$videoOk A:$audioOk, trying internal only...")
-            genericStream?.release()
+            notify("Mic+Internal V:$vOk A:$aOk — switching to internal only")
+            try { genericStream?.release() } catch (_: Exception) {}
             genericStream = null
             mixAudioSource = null
             mp.stop()
-            // Restart with internal only using saved credentials
-            startService(Intent(applicationContext, StreamService::class.java).apply {
-                putExtra("resultCode", savedResultCode)
-                putExtra("data", savedData)
-                putExtra("rtmpUrl", fullUrl.substringBeforeLast("/"))
-                putExtra("streamKey", fullUrl.substringAfterLast("/"))
-                putExtra("audioMode", "internal")
-                putExtra("orientation", if (w > h) "landscape" else "portrait")
-            })
-            stopSelf()
+            startInternalOnly(url, w, h, savedResultCode, savedData!!)
         }
     }
 
-    private fun startWithInternalOnly(fullUrl: String, w: Int, h: Int, resultCode: Int, data: Intent) {
+    private fun startInternalOnly(url: String, w: Int, h: Int, rc: Int, d: Intent) {
         rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
         rtmpDisplay!!.glInterface.setForceRender(true)
-        rtmpDisplay!!.setIntentResult(resultCode, data)
+        rtmpDisplay!!.setIntentResult(rc, d)
 
-        val videoOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000)
-        var audioOk = false
-        for ((bitrate, sampleRate, stereo) in listOf(
+        val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000)
+        var aOk = false
+        for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true),
             Triple(128_000, 44100, false),
             Triple(64_000, 44100, true),
             Triple(64_000, 32000, true),
         )) {
-            audioOk = try {
-                rtmpDisplay!!.prepareInternalAudio(bitrate, sampleRate, stereo, false, false)
-            } catch (e: Exception) { false }
-            if (audioOk) break
+            aOk = try { rtmpDisplay!!.prepareInternalAudio(br, sr, st, false, false) }
+                  catch (_: Exception) { false }
+            if (aOk) break
         }
-        if (!audioOk) audioOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
+        if (!aOk) aOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
 
-        if (videoOk && audioOk) {
-            rtmpDisplay!!.startStream(fullUrl)
+        if (vOk && aOk) {
+            rtmpDisplay!!.startStream(url)
         } else {
-            notify("Prepare failed V:$videoOk A:$audioOk")
+            notify("Prepare failed V:$vOk A:$aOk")
             releaseWakeLock()
             stopSelf()
         }
