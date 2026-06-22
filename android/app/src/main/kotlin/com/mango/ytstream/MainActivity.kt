@@ -22,6 +22,7 @@ class MainActivity : FlutterActivity() {
     private var pendingRtmpUrl: String? = null
     private var pendingStreamKey: String? = null
     private var pendingAudioMode: String? = null
+    private var pendingOrientation: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -32,6 +33,7 @@ class MainActivity : FlutterActivity() {
                     pendingRtmpUrl = call.argument("rtmpUrl")
                     pendingStreamKey = call.argument("streamKey")
                     pendingAudioMode = call.argument("audioMode") ?: "internal"
+                    pendingOrientation = call.argument("orientation") ?: "landscape"
                     pendingResult = result
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
                         startActivityForResult(
@@ -68,15 +70,12 @@ class MainActivity : FlutterActivity() {
                         putExtra("rtmpUrl", pendingRtmpUrl)
                         putExtra("streamKey", pendingStreamKey)
                         putExtra("audioMode", pendingAudioMode)
+                        putExtra("orientation", pendingOrientation)
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
-                    }
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
+                    else startService(intent)
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this))
                         startService(Intent(this, FloatingButtonService::class.java))
-                    }
                     pendingResult?.success(null)
                 } else {
                     pendingResult?.error("CANCELLED", "Permission denied", null)
