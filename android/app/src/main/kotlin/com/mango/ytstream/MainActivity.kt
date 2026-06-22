@@ -2,11 +2,14 @@ package com.mango.ytstream
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -16,6 +19,7 @@ class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.mango.ytstream/stream"
     private val REQUEST_MEDIA_PROJECTION = 1001
     private val REQUEST_OVERLAY = 1002
+    private val REQUEST_MIC_PERMISSION = 1003
 
     private var methodChannel: MethodChannel? = null
     private var pendingResult: MethodChannel.Result? = null
@@ -35,20 +39,55 @@ class MainActivity : FlutterActivity() {
                     pendingAudioMode = call.argument("audioMode") ?: "internal"
                     pendingOrientation = call.argument("orientation") ?: "landscape"
                     pendingResult = result
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-                        startActivityForResult(
-                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")),
-                            REQUEST_OVERLAY
-                        )
-                    } else {
-                        requestMediaProjection()
-                    }
+                    checkPermissionsAndStart()
                 }
                 "stopStream" -> {
                     stopStreamService()
                     result.success(null)
                 }
                 else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun checkPermissionsAndStart() {
+        // Mic permission check — audioMode mic_internal असेल तरच
+        if (pendingAudioMode == "mic_internal") {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(android.Manifest.permission.RECORD_AUDIO),
+                    REQUEST_MIC_PERMISSION
+                )
+                return
+            }
+        }
+        checkOverlayAndStart()
+    }
+
+    private fun checkOverlayAndStart() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            startActivityForResult(
+                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")),
+                REQUEST_OVERLAY
+            )
+        } else {
+            requestMediaProjection()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_MIC_PERMISSION) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                checkOverlayAndStart()
+            } else {
+                pendingResult?.error("MIC_DENIED", "Microphone permission denied", null)
+                methodChannel?.invokeMethod("onStreamError", "Microphone permission denied")
+                pendingResult = null
             }
         }
     }
