@@ -164,7 +164,7 @@ private fun startMixedAudio(url: String, w: Int, h: Int, rc: Int, d: Intent) {
     val screen = ScreenSource(applicationContext, mp)
 
     // ✅ आधी MicrophoneSource ने initialize कर
-    genericStream = GenericStream(applicationContext, this, screen, MicrophoneSource()).apply {
+    genericStream = GenericStream(applicationContext, this, screen, MicrophoneSource(audioSource = android.media.MediaRecorder.AudioSource.MIC)).apply {
         getGlInterface().setForceRender(true)
     }
 
