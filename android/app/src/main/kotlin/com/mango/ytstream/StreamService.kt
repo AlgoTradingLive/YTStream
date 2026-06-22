@@ -151,16 +151,16 @@ class StreamService : Service(), ConnectChecker {
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun startWithMixedAudio(fullUrl: String, w: Int, h: Int, resultCode: Int, data: Intent) {
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val mediaProjection = manager.getMediaProjection(resultCode, data)
+        val mp: MediaProjection = manager.getMediaProjection(resultCode, data)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            mediaProjection.registerCallback(object : MediaProjection.Callback() {
+            mp.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() { stopStreaming() }
             }, mainHandler)
         }
 
-        mixAudioSource = MixAudioSource(mediaProjection)
-        val screenSource = ScreenSource(applicationContext, mediaProjection)
+        mixAudioSource = MixAudioSource(mp)
+        val screenSource = ScreenSource(applicationContext, mp)
 
         genericStream = GenericStream(applicationContext, this, screenSource, mixAudioSource!!).apply {
             getGlInterface().setForceRender(true)
@@ -176,7 +176,7 @@ class StreamService : Service(), ConnectChecker {
             genericStream?.release()
             genericStream = null
             mixAudioSource = null
-            mediaProjection.stop()
+            mp.stop()
             // Restart with internal only using saved credentials
             startService(Intent(applicationContext, StreamService::class.java).apply {
                 putExtra("resultCode", savedResultCode)
