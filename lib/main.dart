@@ -8,17 +8,13 @@ void main() {
 
 class YTStreamApp extends StatelessWidget {
   const YTStreamApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'YT Stream',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1565C0),
-          brightness: Brightness.dark,
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1565C0), brightness: Brightness.dark),
         useMaterial3: true,
       ),
       home: const StreamPage(),
@@ -28,20 +24,19 @@ class YTStreamApp extends StatelessWidget {
 
 class StreamPage extends StatefulWidget {
   const StreamPage({super.key});
-
   @override
   State<StreamPage> createState() => _StreamPageState();
 }
 
 class _StreamPageState extends State<StreamPage> {
   static const platform = MethodChannel('com.mango.ytstream/stream');
-
   final _streamKeyController = TextEditingController();
   bool _isStreaming = false;
   bool _isLoading = false;
   String _status = 'Ready';
   String _rtmpUrl = 'rtmps://a.rtmps.youtube.com/live2';
-  String _audioMode = 'internal'; // 'internal' or 'mic_internal'
+  String _audioMode = 'internal';
+  String _orientation = 'landscape'; // landscape or portrait
 
   @override
   void initState() {
@@ -56,6 +51,7 @@ class _StreamPageState extends State<StreamPage> {
       _streamKeyController.text = prefs.getString('stream_key') ?? '';
       _rtmpUrl = prefs.getString('rtmp_url') ?? 'rtmps://a.rtmps.youtube.com/live2';
       _audioMode = prefs.getString('audio_mode') ?? 'internal';
+      _orientation = prefs.getString('orientation') ?? 'landscape';
     });
   }
 
@@ -64,6 +60,7 @@ class _StreamPageState extends State<StreamPage> {
     await prefs.setString('stream_key', _streamKeyController.text.trim());
     await prefs.setString('rtmp_url', _rtmpUrl);
     await prefs.setString('audio_mode', _audioMode);
+    await prefs.setString('orientation', _orientation);
   }
 
   Future<dynamic> _handleNativeCallback(MethodCall call) async {
@@ -86,9 +83,7 @@ class _StreamPageState extends State<StreamPage> {
   Future<void> _startStream() async {
     final key = _streamKeyController.text.trim();
     if (key.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Stream Key enter karo!'), backgroundColor: Colors.red),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Stream Key enter karo!'), backgroundColor: Colors.red));
       return;
     }
     await _savePref();
@@ -98,6 +93,7 @@ class _StreamPageState extends State<StreamPage> {
         'rtmpUrl': _rtmpUrl,
         'streamKey': key,
         'audioMode': _audioMode,
+        'orientation': _orientation,
       });
     } on PlatformException catch (e) {
       setState(() { _isLoading = false; _status = '❌ ${e.message}'; });
@@ -106,24 +102,63 @@ class _StreamPageState extends State<StreamPage> {
 
   Future<void> _stopStream() async {
     setState(() { _isLoading = true; _status = 'Stopping...'; });
-    try {
-      await platform.invokeMethod('stopStream');
-    } on PlatformException catch (e) {
-      setState(() { _isLoading = false; _status = '❌ ${e.message}'; });
-    }
+    try { await platform.invokeMethod('stopStream'); }
+    on PlatformException catch (e) { setState(() { _isLoading = false; _status = '❌ ${e.message}'; }); }
   }
 
   void _showRtmpDialog() {
-    final controller = TextEditingController(text: _rtmpUrl);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('RTMP URL'),
-        content: TextField(controller: controller),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(onPressed: () { setState(() => _rtmpUrl = controller.text.trim()); Navigator.pop(ctx); }, child: const Text('Save')),
-        ],
+    final c = TextEditingController(text: _rtmpUrl);
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('RTMP URL'),
+      content: TextField(controller: c),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        TextButton(onPressed: () { setState(() => _rtmpUrl = c.text.trim()); Navigator.pop(ctx); }, child: const Text('Save')),
+      ],
+    ));
+  }
+
+  Widget _modeBtn(String mode, String emoji, String title, String sub) {
+    final selected = _audioMode == mode;
+    return Expanded(
+      child: GestureDetector(
+        onTap: _isStreaming ? null : () => setState(() => _audioMode = mode),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFF1565C0) : const Color(0xFF161B22),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: selected ? const Color(0xFF1565C0) : Colors.white12),
+          ),
+          child: Column(children: [
+            Text(emoji, style: const TextStyle(fontSize: 22)),
+            const SizedBox(height: 4),
+            Text(title, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
+            Text(sub, style: const TextStyle(color: Colors.white54, fontSize: 10)),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _orientBtn(String mode, String emoji, String title) {
+    final selected = _orientation == mode;
+    return Expanded(
+      child: GestureDetector(
+        onTap: _isStreaming ? null : () => setState(() => _orientation = mode),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFF0D6B3C) : const Color(0xFF161B22),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: selected ? Colors.green : Colors.white12),
+          ),
+          child: Column(children: [
+            Text(emoji, style: const TextStyle(fontSize: 22)),
+            const SizedBox(height: 4),
+            Text(title, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
+          ]),
+        ),
       ),
     );
   }
@@ -135,41 +170,33 @@ class _StreamPageState extends State<StreamPage> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF161B22),
         title: const Text('YT Stream', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(icon: const Icon(Icons.settings, color: Colors.white70), onPressed: _showRtmpDialog),
-        ],
+        actions: [IconButton(icon: const Icon(Icons.settings, color: Colors.white70), onPressed: _showRtmpDialog)],
       ),
       body: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Status
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: _isStreaming ? const Color(0xFF1A0000) : const Color(0xFF161B22),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: _isStreaming ? Colors.red : Colors.white12),
               ),
-              child: Row(
-                children: [
-                  if (_isLoading)
-                    const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  else
-                    Icon(_isStreaming ? Icons.circle : Icons.circle_outlined,
-                        color: _isStreaming ? Colors.red : Colors.white38, size: 16),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(_status,
-                      style: TextStyle(color: _isStreaming ? Colors.red[300] : Colors.white70, fontSize: 13))),
-                ],
-              ),
+              child: Row(children: [
+                if (_isLoading) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                else Icon(_isStreaming ? Icons.circle : Icons.circle_outlined, color: _isStreaming ? Colors.red : Colors.white38, size: 16),
+                const SizedBox(width: 12),
+                Expanded(child: Text(_status, style: TextStyle(color: _isStreaming ? Colors.red[300] : Colors.white70, fontSize: 13))),
+              ]),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 18),
 
             // Stream Key
             const Text('YouTube Stream Key', style: TextStyle(color: Colors.white70, fontSize: 13)),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             TextField(
               controller: _streamKeyController,
               obscureText: true,
@@ -178,83 +205,43 @@ class _StreamPageState extends State<StreamPage> {
               decoration: InputDecoration(
                 hintText: 'xxxx-xxxx-xxxx-xxxx-xxxx',
                 hintStyle: const TextStyle(color: Colors.white24),
-                filled: true,
-                fillColor: const Color(0xFF161B22),
+                filled: true, fillColor: const Color(0xFF161B22),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Colors.white12)),
                 enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Colors.white12)),
                 focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF1565C0))),
                 suffixIcon: IconButton(
                   icon: const Icon(Icons.paste, color: Colors.white38),
                   onPressed: _isStreaming ? null : () async {
-                    final data = await Clipboard.getData('text/plain');
-                    if (data?.text != null) _streamKeyController.text = data!.text!.trim();
+                    final d = await Clipboard.getData('text/plain');
+                    if (d?.text != null) _streamKeyController.text = d!.text!.trim();
                   },
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 18),
 
-            // Audio Mode Selector
-            const Text('Audio Mode', style: TextStyle(color: Colors.white70, fontSize: 13)),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: _isStreaming ? null : () => setState(() => _audioMode = 'internal'),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      decoration: BoxDecoration(
-                        color: _audioMode == 'internal'
-                            ? const Color(0xFF1565C0)
-                            : const Color(0xFF161B22),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: _audioMode == 'internal' ? const Color(0xFF1565C0) : Colors.white12,
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Text('🔊', style: TextStyle(fontSize: 24)),
-                          const SizedBox(height: 4),
-                          const Text('Only Internal', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
-                          const Text('Game/App sound', style: TextStyle(color: Colors.white54, fontSize: 10)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: _isStreaming ? null : () => setState(() => _audioMode = 'mic_internal'),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      decoration: BoxDecoration(
-                        color: _audioMode == 'mic_internal'
-                            ? const Color(0xFF1565C0)
-                            : const Color(0xFF161B22),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: _audioMode == 'mic_internal' ? const Color(0xFF1565C0) : Colors.white12,
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Text('🎤', style: TextStyle(fontSize: 24)),
-                          const SizedBox(height: 4),
-                          const Text('Mic + Internal', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
-                          const Text('Commentary + Sound', style: TextStyle(color: Colors.white54, fontSize: 10)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            // Audio Mode
+            const Text('Audio', style: TextStyle(color: Colors.white70, fontSize: 13)),
+            const SizedBox(height: 8),
+            Row(children: [
+              _modeBtn('internal', '🔊', 'Only Internal', 'Game/App sound'),
+              const SizedBox(width: 10),
+              _modeBtn('mic_internal', '🎤', 'Mic + Internal', 'Commentary + Sound'),
+            ]),
+            const SizedBox(height: 16),
+
+            // Orientation
+            const Text('Orientation', style: TextStyle(color: Colors.white70, fontSize: 13)),
+            const SizedBox(height: 8),
+            Row(children: [
+              _orientBtn('landscape', '🖥️', 'Landscape'),
+              const SizedBox(width: 10),
+              _orientBtn('portrait', '📱', 'Portrait (Shorts)'),
+            ]),
+
             const Spacer(),
 
-            // Start/Stop Button
+            // Start/Stop
             SizedBox(
               height: 56,
               child: ElevatedButton(
@@ -270,7 +257,7 @@ class _StreamPageState extends State<StreamPage> {
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
           ],
         ),
       ),
@@ -278,8 +265,5 @@ class _StreamPageState extends State<StreamPage> {
   }
 
   @override
-  void dispose() {
-    _streamKeyController.dispose();
-    super.dispose();
-  }
+  void dispose() { _streamKeyController.dispose(); super.dispose(); }
 }
