@@ -18,9 +18,8 @@ import android.os.PowerManager
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
-import com.pedro.encoder.input.sources.audio.InternalAudioSource
-import com.pedro.encoder.input.sources.audio.MicrophoneSource
 import com.pedro.encoder.input.sources.audio.MixAudioSource
+import com.pedro.encoder.input.sources.audio.SilenceAudioSource
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
 import com.pedro.library.rtmp.RtmpDisplay
@@ -35,11 +34,13 @@ class StreamService : Service(), ConnectChecker {
 
     private var rtmpDisplay: RtmpDisplay? = null
     private var genericStream: GenericStream? = null
+    private var mixAudioSource: MixAudioSource? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wakeLock: PowerManager.WakeLock? = null
     private var screenReceiver: BroadcastReceiver? = null
     private var mediaProjection: MediaProjection? = null
-    private var audioMode = "internal"
+    private var currentAudioMode = "internal"
+    private var isMuted = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -69,7 +70,7 @@ class StreamService : Service(), ConnectChecker {
         screenReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 rtmpDisplay?.glInterface?.setForceRender(true)
-                genericStream?.glInterface?.setForceRender(true)
+                genericStream?.getGlInterface()?.setForceRender(true)
             }
         }
         registerReceiver(screenReceiver, IntentFilter().apply {
@@ -83,25 +84,36 @@ class StreamService : Service(), ConnectChecker {
             "STOP" -> { stopStreaming(); return START_NOT_STICKY }
             "PAUSE" -> {
                 rtmpDisplay?.disableAudio()
-                genericStream?.mute()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    genericStream?.changeAudioSource(SilenceAudioSource())
+                }
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "⏸ Paused") }
                 return START_NOT_STICKY
             }
             "RESUME" -> {
                 rtmpDisplay?.enableAudio()
-                genericStream?.unMute()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && mixAudioSource != null) {
+                    genericStream?.changeAudioSource(mixAudioSource!!)
+                }
+                isMuted = false
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
                 return START_NOT_STICKY
             }
             "MUTE" -> {
+                isMuted = true
                 rtmpDisplay?.disableAudio()
-                genericStream?.mute()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    genericStream?.changeAudioSource(SilenceAudioSource())
+                }
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "🔇 Muted") }
                 return START_NOT_STICKY
             }
             "UNMUTE" -> {
+                isMuted = false
                 rtmpDisplay?.enableAudio()
-                genericStream?.unMute()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && mixAudioSource != null) {
+                    genericStream?.changeAudioSource(mixAudioSource!!)
+                }
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
                 return START_NOT_STICKY
             }
@@ -111,7 +123,7 @@ class StreamService : Service(), ConnectChecker {
         val data = intent?.getParcelableExtra<Intent>("data") ?: return START_NOT_STICKY
         val rtmpUrl = intent.getStringExtra("rtmpUrl") ?: return START_NOT_STICKY
         val streamKey = intent.getStringExtra("streamKey") ?: return START_NOT_STICKY
-        audioMode = intent.getStringExtra("audioMode") ?: "internal"
+        currentAudioMode = intent.getStringExtra("audioMode") ?: "internal"
 
         startForeground(NOTIF_ID, buildNotification())
         acquireWakeLock()
@@ -127,7 +139,7 @@ class StreamService : Service(), ConnectChecker {
 
         mainHandler.post {
             try {
-                if (audioMode == "mic_internal" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (currentAudioMode == "mic_internal" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     startWithMixedAudio("$rtmpUrl/$streamKey")
                 } else {
                     startWithInternalOnly(resultCode, data, "$rtmpUrl/$streamKey")
@@ -144,16 +156,14 @@ class StreamService : Service(), ConnectChecker {
 
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun startWithMixedAudio(fullUrl: String) {
-        // MixAudioSource = Mic + Internal audio combined
-        val mixSource = MixAudioSource(mediaProjection!!)
+        mixAudioSource = MixAudioSource(mediaProjection!!)
         val screenSource = ScreenSource(applicationContext, mediaProjection!!)
 
-        genericStream = GenericStream(applicationContext, this, screenSource, mixSource).apply {
-            glInterface.setForceRender(true)
+        genericStream = GenericStream(applicationContext, this, screenSource, mixAudioSource!!).apply {
+            getGlInterface().setForceRender(true)
         }
 
         val videoOk = genericStream!!.prepareVideo(1280, 720, 2_000_000)
-        // echoCanceler=true, noiseSuppressor=true recommended for MixAudioSource
         val audioOk = genericStream!!.prepareAudio(44100, true, 128_000, echoCanceler = true, noiseSuppressor = true)
 
         if (videoOk && audioOk) {
@@ -171,7 +181,6 @@ class StreamService : Service(), ConnectChecker {
         rtmpDisplay!!.setIntentResult(resultCode, data)
 
         val videoOk = rtmpDisplay!!.prepareVideo(1280, 720, 2_000_000)
-
         var audioOk = false
         for ((bitrate, sampleRate, stereo) in listOf(
             Triple(128_000, 44100, true),
