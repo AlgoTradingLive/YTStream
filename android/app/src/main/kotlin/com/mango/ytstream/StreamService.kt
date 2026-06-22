@@ -151,35 +151,44 @@ class StreamService : Service(), ConnectChecker {
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun startMixedAudio(url: String, w: Int, h: Int, rc: Int, d: Intent) {
-        val mp: MediaProjection = getMediaProjection(rc, d)
+private fun startMixedAudio(url: String, w: Int, h: Int, rc: Int, d: Intent) {
+    val mp: MediaProjection = getMediaProjection(rc, d)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            mp.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() { stopStreaming() }
-            }, mainHandler)
-        }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        mp.registerCallback(object : MediaProjection.Callback() {
+            override fun onStop() { stopStreaming() }
+        }, mainHandler)
+    }
 
+    val screen = ScreenSource(applicationContext, mp)
+
+    // ✅ आधी MicrophoneSource ने initialize कर
+    genericStream = GenericStream(applicationContext, this, screen, MicrophoneSource()).apply {
+        getGlInterface().setForceRender(true)
+    }
+
+    val vOk = genericStream!!.prepareVideo(w, h, 2_000_000)
+    val aOk = genericStream!!.prepareAudio(
+        sampleRate = 44100,
+        isStereo = true,
+        bitrate = 128_000,
+        echoCanceler = true,
+        noiseSuppressor = true
+    )
+
+    if (vOk && aOk) {
+        // ✅ नंतर MixAudioSource ने switch कर
         val mix = MixAudioSource(mp)
-        val screen = ScreenSource(applicationContext, mp)
         mixAudioSource = mix
-
-        genericStream = GenericStream(applicationContext, this, screen, mix).apply {
-            getGlInterface().setForceRender(true)
-        }
-
-        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000)
-        val aOk = genericStream!!.prepareAudio(44100, false, 128_000)
-
-        if (vOk && aOk) {
-            genericStream!!.startStream(url)
-        } else {
-            notify("Mic+Internal V:$vOk A:$aOk — switching to internal only")
-            try { genericStream?.release() } catch (_: Exception) {}
-            genericStream = null
-            mixAudioSource = null
-            mp.stop()
-            startInternalOnly(url, w, h, savedResultCode, savedData!!)
+        genericStream!!.changeAudioSource(mix)
+        genericStream!!.startStream(url)
+    } else {
+        notify("Mic+Internal V:$vOk A:$aOk — switching to internal only")
+        try { genericStream?.release() } catch (_: Exception) {}
+        genericStream = null
+        mixAudioSource = null
+        mp.stop()
+        startInternalOnly(url, w, h, savedResultCode, savedData!!)
         }
     }
 
