@@ -164,7 +164,9 @@ class StreamService : Service(), ConnectChecker {
         }
 
         val videoOk = genericStream!!.prepareVideo(1280, 720, 2_000_000)
-        val audioOk = genericStream!!.prepareAudio(44100, true, 128_000, echoCanceler = true, noiseSuppressor = true)
+        var audioOk = genericStream!!.prepareAudio(44100, true, 128_000, echoCanceler = false, noiseSuppressor = false)
+                if (!audioOk) audioOk = genericStream!!.prepareAudio(44100, false, 128_000)
+                if (!audioOk) audioOk = genericStream!!.prepareAudio(32000, true, 64_000)
 
         if (videoOk && audioOk) {
             genericStream!!.startStream(fullUrl)
