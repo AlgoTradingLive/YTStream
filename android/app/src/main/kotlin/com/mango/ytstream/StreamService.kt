@@ -82,7 +82,7 @@ class StreamService : Service(), ConnectChecker {
 
     private fun getMediaProjection(resultCode: Int, data: Intent): MediaProjection {
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        return manager.getMediaProjection(resultCode, data)
+        return manager.getMediaProjection(resultCode, data)!!
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
