@@ -169,7 +169,7 @@ class StreamService : Service(), ConnectChecker {
         }
 
         val vOk = genericStream!!.prepareVideo(w, h, 2_000_000)
-        val aOk = genericStream!!.prepareAudio(44100, true, 128_000)
+        val aOk = genericStream!!.prepareAudio(44100, false, 128_000)
 
         if (vOk && aOk) {
             genericStream!!.startStream(url)
