@@ -20,8 +20,10 @@ class FloatingButtonService : Service() {
     private var floatingView: View? = null
     private var isPaused = false
     private var isMuted = false
+    private var isMicMuted = false
     private lateinit var pauseBtn: TextView
     private lateinit var muteBtn: TextView
+    private lateinit var micBtn: TextView
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -31,7 +33,7 @@ class FloatingButtonService : Service() {
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(12, 8, 12, 8)
+            setPadding(10, 6, 10, 6)
             background = GradientDrawable().apply {
                 setColor(Color.argb(210, 20, 20, 20))
                 cornerRadius = 60f
@@ -40,11 +42,14 @@ class FloatingButtonService : Service() {
 
         pauseBtn = makeBtn("⏸", Color.argb(255, 200, 120, 0))
         muteBtn = makeBtn("🔊", Color.argb(255, 0, 100, 180))
+        micBtn = makeBtn("🎤", Color.argb(255, 0, 130, 80))
         val stopBtn = makeBtn("⏹", Color.argb(255, 200, 0, 0))
 
         container.addView(pauseBtn)
         container.addView(spacer())
         container.addView(muteBtn)
+        container.addView(spacer())
+        container.addView(micBtn)
         container.addView(spacer())
         container.addView(stopBtn)
 
@@ -83,63 +88,84 @@ class FloatingButtonService : Service() {
             }
         }
 
-        // Pause/Resume
+        // Pause/Resume — सगळं बंद
         pauseBtn.setOnClickListener {
             if (!isPaused) {
-                startService(Intent(applicationContext, StreamService::class.java).apply { action = "PAUSE" })
+                send("PAUSE")
                 isPaused = true
                 pauseBtn.text = "▶"
                 setBtnColor(pauseBtn, Color.argb(255, 0, 160, 0))
             } else {
-                startService(Intent(applicationContext, StreamService::class.java).apply { action = "RESUME" })
+                send("RESUME")
                 isPaused = false
+                isMuted = false
+                isMicMuted = false
                 pauseBtn.text = "⏸"
                 setBtnColor(pauseBtn, Color.argb(255, 200, 120, 0))
-                // Resume मुळे mute state clear होतो
-                if (isMuted) {
-                    isMuted = false
-                    muteBtn.text = "🔊"
-                    setBtnColor(muteBtn, Color.argb(255, 0, 100, 180))
-                }
+                muteBtn.text = "🔊"
+                setBtnColor(muteBtn, Color.argb(255, 0, 100, 180))
+                micBtn.text = "🎤"
+                setBtnColor(micBtn, Color.argb(255, 0, 130, 80))
             }
         }
 
-        // Mute/Unmute
+        // Mute/Unmute — सगळा audio बंद
         muteBtn.setOnClickListener {
             if (!isMuted) {
-                startService(Intent(applicationContext, StreamService::class.java).apply { action = "MUTE" })
+                send("MUTE")
                 isMuted = true
                 muteBtn.text = "🔇"
                 setBtnColor(muteBtn, Color.argb(255, 150, 0, 0))
             } else {
-                startService(Intent(applicationContext, StreamService::class.java).apply { action = "UNMUTE" })
+                send("UNMUTE")
                 isMuted = false
                 muteBtn.text = "🔊"
                 setBtnColor(muteBtn, Color.argb(255, 0, 100, 180))
             }
         }
 
+        // Mic Mute — फक्त mic बंद, internal audio चालू
+        micBtn.setOnClickListener {
+            if (!isMicMuted) {
+                send("MIC_MUTE")
+                isMicMuted = true
+                micBtn.text = "🚫"
+                setBtnColor(micBtn, Color.argb(255, 150, 50, 0))
+            } else {
+                send("MIC_UNMUTE")
+                isMicMuted = false
+                micBtn.text = "🎤"
+                setBtnColor(micBtn, Color.argb(255, 0, 130, 80))
+            }
+        }
+
         // Stop
         stopBtn.setOnClickListener {
-            startService(Intent(applicationContext, StreamService::class.java).apply { action = "STOP" })
+            send("STOP")
             stopSelf()
         }
     }
 
+    private fun send(action: String) {
+        startService(Intent(applicationContext, StreamService::class.java).apply {
+            this.action = action
+        })
+    }
+
     private fun makeBtn(text: String, color: Int) = TextView(this).apply {
         this.text = text
-        textSize = 18f
+        textSize = 16f
         setTextColor(Color.WHITE)
         background = GradientDrawable().apply {
             setColor(color)
             cornerRadius = 40f
         }
-        setPadding(22, 14, 22, 14)
+        setPadding(18, 12, 18, 12)
         gravity = Gravity.CENTER
     }
 
     private fun spacer() = View(this).apply {
-        layoutParams = LinearLayout.LayoutParams(12, 1)
+        layoutParams = LinearLayout.LayoutParams(10, 1)
     }
 
     private fun setBtnColor(btn: TextView, color: Int) {
