@@ -36,7 +36,8 @@ class _StreamPageState extends State<StreamPage> {
   String _status = 'Ready';
   String _rtmpUrl = 'rtmps://a.rtmps.youtube.com/live2';
   String _audioMode = 'internal';
-  String _orientation = 'landscape'; // landscape or portrait
+  String _orientation = 'landscape';
+  String _voiceMode = 'normal';
 
   @override
   void initState() {
@@ -52,6 +53,7 @@ class _StreamPageState extends State<StreamPage> {
       _rtmpUrl = prefs.getString('rtmp_url') ?? 'rtmps://a.rtmps.youtube.com/live2';
       _audioMode = prefs.getString('audio_mode') ?? 'internal';
       _orientation = prefs.getString('orientation') ?? 'landscape';
+      _voiceMode = prefs.getString('voice_mode') ?? 'normal';
     });
   }
 
@@ -61,6 +63,7 @@ class _StreamPageState extends State<StreamPage> {
     await prefs.setString('rtmp_url', _rtmpUrl);
     await prefs.setString('audio_mode', _audioMode);
     await prefs.setString('orientation', _orientation);
+    await prefs.setString('voice_mode', _voiceMode);
   }
 
   Future<dynamic> _handleNativeCallback(MethodCall call) async {
@@ -94,6 +97,7 @@ class _StreamPageState extends State<StreamPage> {
         'streamKey': key,
         'audioMode': _audioMode,
         'orientation': _orientation,
+        'voiceMode': _voiceMode,
       });
     } on PlatformException catch (e) {
       setState(() { _isLoading = false; _status = '❌ ${e.message}'; });
@@ -163,6 +167,33 @@ class _StreamPageState extends State<StreamPage> {
     );
   }
 
+  Widget _voiceBtn(String mode, String emoji, String title) {
+    final selected = _voiceMode == mode;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          setState(() => _voiceMode = mode);
+          if (_isStreaming) {
+            platform.invokeMethod('setVoiceMode', {'voiceMode': mode});
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFF6A1B9A) : const Color(0xFF161B22),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: selected ? Colors.purple : Colors.white12),
+          ),
+          child: Column(children: [
+            Text(emoji, style: const TextStyle(fontSize: 22)),
+            const SizedBox(height: 4),
+            Text(title, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
+          ]),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -172,7 +203,7 @@ class _StreamPageState extends State<StreamPage> {
         title: const Text('YT Stream', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [IconButton(icon: const Icon(Icons.settings, color: Colors.white70), onPressed: _showRtmpDialog)],
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -239,7 +270,21 @@ class _StreamPageState extends State<StreamPage> {
               _orientBtn('portrait', '📱', 'Portrait (Shorts)'),
             ]),
 
-            const Spacer(),
+            // Voice Changer — फक्त mic_internal मध्ये दिसेल
+            if (_audioMode == 'mic_internal') ...[
+              const SizedBox(height: 16),
+              const Text('Voice Changer', style: TextStyle(color: Colors.white70, fontSize: 13)),
+              const SizedBox(height: 8),
+              Row(children: [
+                _voiceBtn('normal', '🎙️', 'Normal'),
+                const SizedBox(width: 8),
+                _voiceBtn('girl', '👧', 'Girl'),
+                const SizedBox(width: 8),
+                _voiceBtn('boy', '👦', 'Boy'),
+              ]),
+            ],
+
+            const SizedBox(height: 24),
 
             // Start/Stop
             SizedBox(
