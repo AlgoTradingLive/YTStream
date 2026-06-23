@@ -89,12 +89,10 @@ class StreamService : Service(), ConnectChecker {
     }
 
     private fun applyVoiceEffect(mode: String) {
-        try {
-            val semitones = when (mode) {
-                "girl" -> 5f
-                "boy"  -> -5f
-                else   -> 0f
-            }
+    // Pedro 2.7.3 मध्ये pitch effect नाही
+    // Voice changer feature skip करतो
+    // Future version मध्ये add करता येईल
+}
             genericStream?.let { stream ->
                 // Audio filter clear करून नवीन लावतो
                 stream.clearAudioFilters()
