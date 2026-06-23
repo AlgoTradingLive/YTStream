@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 
 void main() {
   runApp(const YTStreamApp());
@@ -39,6 +41,17 @@ class _StreamPageState extends State<StreamPage> {
   String _orientation = 'landscape';
   String _voiceMode = 'normal';
 
+  // Overlay state
+  String _overlayText = '';
+  String? _overlayImagePath;
+  double _textX = 0.05;
+  double _textY = 0.05;
+  double _imageX = 0.7;
+  double _imageY = 0.05;
+  bool _showOverlayPanel = false;
+
+  final _overlayTextController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -54,6 +67,13 @@ class _StreamPageState extends State<StreamPage> {
       _audioMode = prefs.getString('audio_mode') ?? 'internal';
       _orientation = prefs.getString('orientation') ?? 'landscape';
       _voiceMode = prefs.getString('voice_mode') ?? 'normal';
+      _overlayText = prefs.getString('overlay_text') ?? '';
+      _overlayImagePath = prefs.getString('overlay_image_path');
+      _textX = prefs.getDouble('text_x') ?? 0.05;
+      _textY = prefs.getDouble('text_y') ?? 0.05;
+      _imageX = prefs.getDouble('image_x') ?? 0.7;
+      _imageY = prefs.getDouble('image_y') ?? 0.05;
+      _overlayTextController.text = _overlayText;
     });
   }
 
@@ -64,6 +84,12 @@ class _StreamPageState extends State<StreamPage> {
     await prefs.setString('audio_mode', _audioMode);
     await prefs.setString('orientation', _orientation);
     await prefs.setString('voice_mode', _voiceMode);
+    await prefs.setString('overlay_text', _overlayText);
+    if (_overlayImagePath != null) await prefs.setString('overlay_image_path', _overlayImagePath!);
+    await prefs.setDouble('text_x', _textX);
+    await prefs.setDouble('text_y', _textY);
+    await prefs.setDouble('image_x', _imageX);
+    await prefs.setDouble('image_y', _imageY);
   }
 
   Future<dynamic> _handleNativeCallback(MethodCall call) async {
@@ -98,6 +124,12 @@ class _StreamPageState extends State<StreamPage> {
         'audioMode': _audioMode,
         'orientation': _orientation,
         'voiceMode': _voiceMode,
+        'overlayText': _overlayText,
+        'overlayImagePath': _overlayImagePath ?? '',
+        'textX': _textX,
+        'textY': _textY,
+        'imageX': _imageX,
+        'imageY': _imageY,
       });
     } on PlatformException catch (e) {
       setState(() { _isLoading = false; _status = '❌ ${e.message}'; });
@@ -108,6 +140,37 @@ class _StreamPageState extends State<StreamPage> {
     setState(() { _isLoading = true; _status = 'Stopping...'; });
     try { await platform.invokeMethod('stopStream'); }
     on PlatformException catch (e) { setState(() { _isLoading = false; _status = '❌ ${e.message}'; }); }
+  }
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery);
+    if (picked != null) {
+      setState(() => _overlayImagePath = picked.path);
+      await _savePref();
+      // Stream चालू असेल तर live update
+      if (_isStreaming) {
+        platform.invokeMethod('updateOverlay', {
+          'overlayText': _overlayText,
+          'overlayImagePath': _overlayImagePath ?? '',
+          'textX': _textX, 'textY': _textY,
+          'imageX': _imageX, 'imageY': _imageY,
+        });
+      }
+    }
+  }
+
+  void _updateOverlayText(String text) {
+    setState(() => _overlayText = text);
+    _savePref();
+    if (_isStreaming) {
+      platform.invokeMethod('updateOverlay', {
+        'overlayText': text,
+        'overlayImagePath': _overlayImagePath ?? '',
+        'textX': _textX, 'textY': _textY,
+        'imageX': _imageX, 'imageY': _imageY,
+      });
+    }
   }
 
   void _showRtmpDialog() {
@@ -173,9 +236,7 @@ class _StreamPageState extends State<StreamPage> {
       child: GestureDetector(
         onTap: () {
           setState(() => _voiceMode = mode);
-          if (_isStreaming) {
-            platform.invokeMethod('setVoiceMode', {'voiceMode': mode});
-          }
+          if (_isStreaming) platform.invokeMethod('setVoiceMode', {'voiceMode': mode});
         },
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -190,6 +251,180 @@ class _StreamPageState extends State<StreamPage> {
             Text(title, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
           ]),
         ),
+      ),
+    );
+  }
+
+  // Overlay preview — user drag करून position ठरवेल
+  Widget _overlayPreview() {
+    return Container(
+      height: 200,
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A0A0A),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Stack(
+          children: [
+            // Background hint
+            const Center(
+              child: Text('Screen Preview\n(Drag items to position)', textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white12, fontSize: 12)),
+            ),
+
+            // Text overlay — draggable
+            if (_overlayText.isNotEmpty)
+              _DraggableOverlayItem(
+                x: _textX, y: _textY,
+                onPositionChanged: (x, y) {
+                  setState(() { _textX = x; _textY = y; });
+                  _savePref();
+                  if (_isStreaming) {
+                    platform.invokeMethod('updateOverlay', {
+                      'overlayText': _overlayText,
+                      'overlayImagePath': _overlayImagePath ?? '',
+                      'textX': _textX, 'textY': _textY,
+                      'imageX': _imageX, 'imageY': _imageY,
+                    });
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(_overlayText,
+                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                ),
+              ),
+
+            // Image overlay — draggable
+            if (_overlayImagePath != null)
+              _DraggableOverlayItem(
+                x: _imageX, y: _imageY,
+                onPositionChanged: (x, y) {
+                  setState(() { _imageX = x; _imageY = y; });
+                  _savePref();
+                  if (_isStreaming) {
+                    platform.invokeMethod('updateOverlay', {
+                      'overlayText': _overlayText,
+                      'overlayImagePath': _overlayImagePath ?? '',
+                      'textX': _textX, 'textY': _textY,
+                      'imageX': _imageX, 'imageY': _imageY,
+                    });
+                  }
+                },
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: Image.file(File(_overlayImagePath!), width: 50, height: 50, fit: BoxFit.contain),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _overlayPanel() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161B22),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Text input
+          const Text('Overlay Text', style: TextStyle(color: Colors.white70, fontSize: 13)),
+          const SizedBox(height: 6),
+          Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _overlayTextController,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: 'Channel name, watermark...',
+                  hintStyle: const TextStyle(color: Colors.white24),
+                  filled: true, fillColor: const Color(0xFF0D1117),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white12)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white12)),
+                ),
+                onChanged: _updateOverlayText,
+              ),
+            ),
+            if (_overlayText.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.clear, color: Colors.white38, size: 20),
+                onPressed: () {
+                  _overlayTextController.clear();
+                  _updateOverlayText('');
+                },
+              ),
+          ]),
+
+          const SizedBox(height: 12),
+
+          // Image picker
+          const Text('Overlay Image (Logo/Watermark)', style: TextStyle(color: Colors.white70, fontSize: 13)),
+          const SizedBox(height: 6),
+          Row(children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: _pickImage,
+                child: Container(
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0D1117),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    const Icon(Icons.image, color: Colors.white38, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      _overlayImagePath != null ? _overlayImagePath!.split('/').last : 'Gallery मधून Image निवडा',
+                      style: TextStyle(
+                        color: _overlayImagePath != null ? Colors.white70 : Colors.white38,
+                        fontSize: 12,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ]),
+                ),
+              ),
+            ),
+            if (_overlayImagePath != null)
+              IconButton(
+                icon: const Icon(Icons.clear, color: Colors.white38, size: 20),
+                onPressed: () {
+                  setState(() => _overlayImagePath = null);
+                  _savePref();
+                  if (_isStreaming) {
+                    platform.invokeMethod('updateOverlay', {
+                      'overlayText': _overlayText,
+                      'overlayImagePath': '',
+                      'textX': _textX, 'textY': _textY,
+                      'imageX': _imageX, 'imageY': _imageY,
+                    });
+                  }
+                },
+              ),
+          ]),
+
+          // Preview
+          if (_overlayText.isNotEmpty || _overlayImagePath != null) ...[
+            const SizedBox(height: 12),
+            const Text('Position (Drag करा)', style: TextStyle(color: Colors.white70, fontSize: 13)),
+            const SizedBox(height: 6),
+            _overlayPreview(),
+          ],
+        ],
       ),
     );
   }
@@ -270,7 +505,7 @@ class _StreamPageState extends State<StreamPage> {
               _orientBtn('portrait', '📱', 'Portrait (Shorts)'),
             ]),
 
-            // Voice Changer — फक्त mic_internal मध्ये दिसेल
+            // Voice Changer
             if (_audioMode == 'mic_internal') ...[
               const SizedBox(height: 16),
               const Text('Voice Changer', style: TextStyle(color: Colors.white70, fontSize: 13)),
@@ -282,6 +517,39 @@ class _StreamPageState extends State<StreamPage> {
                 const SizedBox(width: 8),
                 _voiceBtn('boy', '👦', 'Boy'),
               ]),
+            ],
+
+            const SizedBox(height: 16),
+
+            // Overlay Section
+            GestureDetector(
+              onTap: () => setState(() => _showOverlayPanel = !_showOverlayPanel),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF161B22),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.layers, color: Colors.white54, size: 18),
+                  const SizedBox(width: 10),
+                  const Expanded(child: Text('Overlay (Text / Image)', style: TextStyle(color: Colors.white70, fontSize: 13))),
+                  if (_overlayText.isNotEmpty || _overlayImagePath != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(color: Colors.green[800], borderRadius: BorderRadius.circular(10)),
+                      child: const Text('ON', style: TextStyle(color: Colors.white, fontSize: 10)),
+                    ),
+                  const SizedBox(width: 8),
+                  Icon(_showOverlayPanel ? Icons.expand_less : Icons.expand_more, color: Colors.white38),
+                ]),
+              ),
+            ),
+
+            if (_showOverlayPanel) ...[
+              const SizedBox(height: 8),
+              _overlayPanel(),
             ],
 
             const SizedBox(height: 24),
@@ -310,5 +578,42 @@ class _StreamPageState extends State<StreamPage> {
   }
 
   @override
-  void dispose() { _streamKeyController.dispose(); super.dispose(); }
+  void dispose() {
+    _streamKeyController.dispose();
+    _overlayTextController.dispose();
+    super.dispose();
+  }
+}
+
+// Draggable overlay item widget
+class _DraggableOverlayItem extends StatelessWidget {
+  final double x, y;
+  final Widget child;
+  final void Function(double x, double y) onPositionChanged;
+
+  const _DraggableOverlayItem({
+    required this.x, required this.y,
+    required this.child,
+    required this.onPositionChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (ctx, constraints) {
+      return Stack(children: [
+        Positioned(
+          left: x * constraints.maxWidth,
+          top: y * constraints.maxHeight,
+          child: GestureDetector(
+            onPanUpdate: (details) {
+              double newX = (x + details.delta.dx / constraints.maxWidth).clamp(0.0, 0.9);
+              double newY = (y + details.delta.dy / constraints.maxHeight).clamp(0.0, 0.9);
+              onPositionChanged(newX, newY);
+            },
+            child: child,
+          ),
+        ),
+      ]);
+    });
+  }
 }
