@@ -158,7 +158,7 @@ if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val isPortrait = orientation == "portrait"
         val vW = if (isPortrait) 720 else 1280
         val vH = if (isPortrait) 1280 else 720
-        val rotation = 0  // ← portrait fix
+        val rotation = if (isPortrait) 90 else 0
 
         mainHandler.post {
             try {
@@ -295,3 +295,4 @@ if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             .setOngoing(true).build()
     }
 }
+
