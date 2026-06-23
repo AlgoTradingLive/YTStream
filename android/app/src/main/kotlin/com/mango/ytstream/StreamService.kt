@@ -117,9 +117,8 @@ class StreamService : Service(), ConnectChecker {
             // Text overlay
             if (overlayText.isNotEmpty()) {
                 val tf = TextObjectFilterRender()
-                tf.setDefaultScale(0.3f, 0.08f)
-                tf.setPosition(// PointF removed
-                    //textX, textY))
+                tf.setScale(0.3f, 0.08f)
+                tf.setPosition(textX, textY)
                 tf.setText(overlayText, 40f, Color.WHITE)
                 glInterface.addFilter(tf)
                 textFilter = tf
