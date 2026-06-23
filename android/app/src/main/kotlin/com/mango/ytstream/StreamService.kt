@@ -28,7 +28,6 @@ import com.pedro.library.generic.GenericStream
 import com.pedro.library.rtmp.RtmpDisplay
 import com.pedro.encoder.input.gl.render.filters.`object`.TextObjectFilterRender
 import com.pedro.encoder.input.gl.render.filters.`object`.ImageObjectFilterRender
-import android.graphics.PointF
 
 class StreamService : Service(), ConnectChecker {
 
@@ -119,7 +118,8 @@ class StreamService : Service(), ConnectChecker {
             if (overlayText.isNotEmpty()) {
                 val tf = TextObjectFilterRender()
                 tf.setDefaultScale(0.3f, 0.08f)
-                tf.setPosition(PointF(textX, textY))
+                tf.setPosition(// PointF removed
+                    //textX, textY))
                 tf.setText(overlayText, 40f, Color.WHITE)
                 glInterface.addFilter(tf)
                 textFilter = tf
@@ -130,8 +130,8 @@ class StreamService : Service(), ConnectChecker {
                 val bitmap = BitmapFactory.decodeFile(overlayImagePath)
                 if (bitmap != null) {
                     val sf = ImageObjectFilterRender()
-                    sf.setDefaultScale(0.15f, 0.15f)
-                    sf.setPosition(PointF(imageX, imageY))
+                    sf.setScale(0.15f, 0.15f)
+                    sf.setPosition(imageX, imageY)
                     sf.setImage(bitmap)
                     glInterface.addFilter(sf)
                     imageFilter = sf
