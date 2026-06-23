@@ -140,7 +140,19 @@ class StreamService : Service(), ConnectChecker {
         savedOrientation = orientation
         savedFullUrl = "$rtmpUrl/$streamKey"
 
-        startForeground(NOTIF_ID, buildNotification())
+        
+if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+    val fgsType = if (audioMode == "mic_internal") {
+        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
+        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+    } else {
+        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+    }
+    startForeground(NOTIF_ID, buildNotification(), fgsType)
+} else {
+    startForeground(NOTIF_ID, buildNotification())
+}
+
         acquireWakeLock()
 
         val isPortrait = orientation == "portrait"
