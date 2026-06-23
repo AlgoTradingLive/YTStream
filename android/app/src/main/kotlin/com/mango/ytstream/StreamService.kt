@@ -100,46 +100,46 @@ class StreamService : Service(), ConnectChecker {
     }
 
     private fun applyOverlay(
-        overlayText: String,
-        overlayImagePath: String,
-        textX: Float, textY: Float,
-        imageX: Float, imageY: Float
-    ) {
-        try {
-            val glInterface = rtmpDisplay?.glInterface ?: genericStream?.getGlInterface() ?: return
+    overlayText: String,
+    overlayImagePath: String,
+    textX: Float, textY: Float,
+    imageX: Float, imageY: Float
+) {
+    try {
+        val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return
 
-            // आधीचे filters काढा
-            textFilter?.let { try { glInterface.removeFilter(it) } catch (_: Exception) {} }
-            imageFilter?.let { try { glInterface.removeFilter(it) } catch (_: Exception) {} }
-            textFilter = null
-            imageFilter = null
+        // आधीचे filters काढा
+        textFilter?.let { try { glInterface.removeFilter(it) } catch (_: Exception) {} }
+        imageFilter?.let { try { glInterface.removeFilter(it) } catch (_: Exception) {} }
+        textFilter = null
+        imageFilter = null
 
-            // Text overlay
-            if (overlayText.isNotEmpty()) {
-                val tf = TextObjectFilterRender()
-                tf.setScale(0.3f, 0.08f)
-                tf.setPosition(textX, textY)
-                tf.setText(overlayText, 40f, Color.WHITE)
-                glInterface.addFilter(tf)
-                textFilter = tf
-            }
-
-            // Image overlay
-            if (overlayImagePath.isNotEmpty()) {
-                val bitmap = BitmapFactory.decodeFile(overlayImagePath)
-                if (bitmap != null) {
-                    val sf = ImageObjectFilterRender()
-                    sf.setScale(0.15f, 0.15f)
-                    sf.setPosition(imageX, imageY)
-                    sf.setImage(bitmap)
-                    glInterface.addFilter(sf)
-                    imageFilter = sf
-                }
-            }
-        } catch (e: Exception) {
-            // Overlay error ignore — stream चालू राहील
+        // Text overlay
+        if (overlayText.isNotEmpty()) {
+            val tf = TextObjectFilterRender()
+            glInterface.addFilter(tf)
+            tf.setScale(30f, 10f)
+            tf.setPosition(textX * 100f, textY * 100f)
+            tf.setText(overlayText, 60f, Color.WHITE)
+            textFilter = tf
         }
+
+        // Image overlay
+        if (overlayImagePath.isNotEmpty()) {
+            val bitmap = BitmapFactory.decodeFile(overlayImagePath)
+            if (bitmap != null) {
+                val sf = ImageObjectFilterRender()
+                glInterface.addFilter(sf)
+                sf.setScale(20f, 20f)
+                sf.setPosition(imageX * 100f, imageY * 100f)
+                sf.setImage(bitmap)
+                imageFilter = sf
+            }
+        }
+    } catch (e: Exception) {
+        notify("Overlay error: ${e.message}")
     }
+}
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
