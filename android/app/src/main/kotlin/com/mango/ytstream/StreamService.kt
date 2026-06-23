@@ -105,6 +105,18 @@ class StreamService : Service(), ConnectChecker {
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
                 return START_NOT_STICKY
             }
+            "MIC_MUTE" -> {
+                // फक्त mic volume 0 — internal audio चालू राहतो
+                mixAudioSource?.microphoneVolume = 0f
+                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "🎤 Mic Muted") }
+                return START_NOT_STICKY
+            }
+            "MIC_UNMUTE" -> {
+                // Mic volume परत 2f (normal)
+                mixAudioSource?.microphoneVolume = 2f
+                mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
+                return START_NOT_STICKY
+            }
         }
 
         val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
@@ -286,5 +298,6 @@ class StreamService : Service(), ConnectChecker {
             .setOngoing(true).build()
     }
 }
+
 
 
