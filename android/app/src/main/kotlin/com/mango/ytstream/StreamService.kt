@@ -18,8 +18,9 @@ import android.os.PowerManager
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
-import com.pedro.encoder.input.sources.audio.MixAudioSource
+import com.pedro.encoder.input.sources.audio.InternalAudioSource
 import com.pedro.encoder.input.sources.audio.MicrophoneSource
+import com.pedro.encoder.input.sources.audio.MixAudioSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
@@ -43,6 +44,7 @@ class StreamService : Service(), ConnectChecker {
     private var savedData: Intent? = null
     private var savedFullUrl = ""
     private var savedOrientation = "landscape"
+    private var currentVoiceMode = "normal"
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -86,6 +88,27 @@ class StreamService : Service(), ConnectChecker {
         return manager.getMediaProjection(resultCode, data)!!
     }
 
+    private fun applyVoiceEffect(mode: String) {
+        try {
+            val semitones = when (mode) {
+                "girl" -> 5f
+                "boy"  -> -5f
+                else   -> 0f
+            }
+            genericStream?.let { stream ->
+                // Audio filter clear करून नवीन लावतो
+                stream.clearAudioFilters()
+                if (semitones != 0f) {
+                    val effect = com.pedro.encoder.input.audio.effects.PitchEffect()
+                    effect.semitones = semitones
+                    stream.addAudioFilter(effect)
+                }
+            }
+        } catch (e: Exception) {
+            // Pitch effect support नसेल तर ignore
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             "STOP" -> { stopStreaming(); return START_NOT_STICKY }
@@ -113,6 +136,12 @@ class StreamService : Service(), ConnectChecker {
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
                 return START_NOT_STICKY
             }
+            "SET_VOICE" -> {
+                val mode = intent.getStringExtra("voiceMode") ?: "normal"
+                currentVoiceMode = mode
+                applyVoiceEffect(mode)
+                return START_NOT_STICKY
+            }
         }
 
         val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
@@ -121,6 +150,7 @@ class StreamService : Service(), ConnectChecker {
         val streamKey = intent.getStringExtra("streamKey") ?: return START_NOT_STICKY
         val audioMode = intent.getStringExtra("audioMode") ?: "internal"
         val orientation = intent.getStringExtra("orientation") ?: "landscape"
+        currentVoiceMode = intent.getStringExtra("voiceMode") ?: "normal"
 
         savedResultCode = resultCode
         savedData = data
@@ -152,44 +182,45 @@ class StreamService : Service(), ConnectChecker {
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-private fun startMixedAudio(url: String, w: Int, h: Int, rc: Int, d: Intent) {
-    val mp: MediaProjection = getMediaProjection(rc, d)
+    private fun startMixedAudio(url: String, w: Int, h: Int, rc: Int, d: Intent) {
+        val mp: MediaProjection = getMediaProjection(rc, d)
 
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        mp.registerCallback(object : MediaProjection.Callback() {
-            override fun onStop() { stopStreaming() }
-        }, mainHandler)
-    }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            mp.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() { stopStreaming() }
+            }, mainHandler)
+        }
 
-    val screen = ScreenSource(applicationContext, mp)
+        val screen = ScreenSource(applicationContext, mp)
 
-    // ✅ आधी MicrophoneSource ने initialize कर
-    genericStream = GenericStream(applicationContext, this, screen, MicrophoneSource(audioSource = android.media.MediaRecorder.AudioSource.MIC)).apply {
-        getGlInterface().setForceRender(true)
-    }
+        genericStream = GenericStream(applicationContext, this, screen,
+            MicrophoneSource(audioSource = android.media.MediaRecorder.AudioSource.MIC)).apply {
+            getGlInterface().setForceRender(true)
+        }
 
-    val vOk = genericStream!!.prepareVideo(w, h, 2_000_000)
-    val aOk = genericStream!!.prepareAudio(
-        sampleRate = 44100,
-        isStereo = true,
-        bitrate = 128_000,
-        echoCanceler = true,
-        noiseSuppressor = true
-    )
+        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000)
+        val aOk = genericStream!!.prepareAudio(
+            sampleRate = 44100,
+            isStereo = true,
+            bitrate = 128_000,
+            echoCanceler = true,
+            noiseSuppressor = true
+        )
 
-    if (vOk && aOk) {
-        // ✅ नंतर MixAudioSource ने switch कर
-        val mix = MixAudioSource(mp)
-        mixAudioSource = mix
-        genericStream!!.changeAudioSource(mix)
-        genericStream!!.startStream(url)
-    } else {
-        notify("Mic+Internal V:$vOk A:$aOk — switching to internal only")
-        try { genericStream?.release() } catch (_: Exception) {}
-        genericStream = null
-        mixAudioSource = null
-        mp.stop()
-        startInternalOnly(url, w, h, savedResultCode, savedData!!)
+        if (vOk && aOk) {
+            val mix = MixAudioSource(mp)
+            mixAudioSource = mix
+            genericStream!!.changeAudioSource(mix)
+            // Voice effect लावतो
+            applyVoiceEffect(currentVoiceMode)
+            genericStream!!.startStream(url)
+        } else {
+            notify("Mic+Internal V:$vOk A:$aOk — switching to internal only")
+            try { genericStream?.release() } catch (_: Exception) {}
+            genericStream = null
+            mixAudioSource = null
+            mp.stop()
+            startInternalOnly(url, w, h, savedResultCode, savedData!!)
         }
     }
 
