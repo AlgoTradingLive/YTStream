@@ -131,9 +131,28 @@ class StreamService : Service(), ConnectChecker {
         acquireWakeLock()
 
         val isPortrait = orientation == "portrait"
-        val vW = if (isPortrait) 720 else 1280
-        val vH = if (isPortrait) 1280 else 720
-        val rotation = if (isPortrait) 90 else 0
+        // Get actual screen dimensions
+        val wm = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
+        val dm = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION") wm.defaultDisplay.getMetrics(dm)
+        val screenW = dm.widthPixels
+        val screenH = dm.heightPixels
+        val isScreenLandscape = screenW > screenH
+
+        // Portrait streaming: use 720x1280 with correct rotation
+        val vW: Int
+        val vH: Int
+        val rotation: Int
+        if (isPortrait) {
+            vW = 720
+            vH = 1280
+            // If device screen is landscape (tablet/phone landscape), rotate 90 or 270
+            rotation = if (isScreenLandscape) 90 else 0
+        } else {
+            vW = 1280
+            vH = 720
+            rotation = if (isScreenLandscape) 0 else 90
+        }
         val fullUrl = "$rtmpUrl/$streamKey"
 
         mainHandler.post {
@@ -268,3 +287,4 @@ class StreamService : Service(), ConnectChecker {
             .setOngoing(true).build()
     }
 }
+
