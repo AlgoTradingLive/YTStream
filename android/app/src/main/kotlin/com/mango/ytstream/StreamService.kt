@@ -8,6 +8,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -18,11 +20,15 @@ import android.os.PowerManager
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
+import com.pedro.encoder.input.sources.audio.MicrophoneSource
 import com.pedro.encoder.input.sources.audio.MixAudioSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
 import com.pedro.library.rtmp.RtmpDisplay
+import com.pedro.encoder.input.gl.render.filters.`object`.TextObjectFilterRender
+import com.pedro.encoder.input.gl.render.filters.`object`.SpriteObjectFilterRender
+import android.graphics.PointF
 
 class StreamService : Service(), ConnectChecker {
 
@@ -40,6 +46,13 @@ class StreamService : Service(), ConnectChecker {
     private var screenReceiver: BroadcastReceiver? = null
     private var savedResultCode = -1
     private var savedData: Intent? = null
+    private var savedFullUrl = ""
+    private var savedOrientation = "landscape"
+    private var currentVoiceMode = "normal"
+
+    // Overlay filters
+    private var textFilter: TextObjectFilterRender? = null
+    private var imageFilter: SpriteObjectFilterRender? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -78,6 +91,57 @@ class StreamService : Service(), ConnectChecker {
         })
     }
 
+    private fun getMediaProjection(resultCode: Int, data: Intent): MediaProjection {
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        return manager.getMediaProjection(resultCode, data)!!
+    }
+
+    private fun applyVoiceEffect(mode: String) {
+        // Pedro 2.7.3 मध्ये pitch effect नाही
+    }
+
+    private fun applyOverlay(
+        overlayText: String,
+        overlayImagePath: String,
+        textX: Float, textY: Float,
+        imageX: Float, imageY: Float
+    ) {
+        try {
+            val glInterface = rtmpDisplay?.glInterface ?: genericStream?.getGlInterface() ?: return
+
+            // आधीचे filters काढा
+            textFilter?.let { try { glInterface.removeFilter(it) } catch (_: Exception) {} }
+            imageFilter?.let { try { glInterface.removeFilter(it) } catch (_: Exception) {} }
+            textFilter = null
+            imageFilter = null
+
+            // Text overlay
+            if (overlayText.isNotEmpty()) {
+                val tf = TextObjectFilterRender()
+                tf.setDefaultScale(0.3f, 0.08f)
+                tf.setPosition(PointF(textX, textY))
+                tf.setText(overlayText, 40f, Color.WHITE)
+                glInterface.addFilter(tf)
+                textFilter = tf
+            }
+
+            // Image overlay
+            if (overlayImagePath.isNotEmpty()) {
+                val bitmap = BitmapFactory.decodeFile(overlayImagePath)
+                if (bitmap != null) {
+                    val sf = SpriteObjectFilterRender()
+                    sf.setDefaultScale(0.15f, 0.15f)
+                    sf.setPosition(PointF(imageX, imageY))
+                    sf.setSprite(bitmap)
+                    glInterface.addFilter(sf)
+                    imageFilter = sf
+                }
+            }
+        } catch (e: Exception) {
+            // Overlay error ignore — stream चालू राहील
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             "STOP" -> { stopStreaming(); return START_NOT_STICKY }
@@ -105,16 +169,20 @@ class StreamService : Service(), ConnectChecker {
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
                 return START_NOT_STICKY
             }
-            "MIC_MUTE" -> {
-                // फक्त mic volume 0 — internal audio चालू राहतो
-                mixAudioSource?.microphoneVolume = 0f
-                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "🎤 Mic Muted") }
+            "SET_VOICE" -> {
+                val mode = intent.getStringExtra("voiceMode") ?: "normal"
+                currentVoiceMode = mode
+                applyVoiceEffect(mode)
                 return START_NOT_STICKY
             }
-            "MIC_UNMUTE" -> {
-                // Mic volume परत 2f (normal)
-                mixAudioSource?.microphoneVolume = 2f
-                mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
+            "UPDATE_OVERLAY" -> {
+                val text = intent.getStringExtra("overlayText") ?: ""
+                val imagePath = intent.getStringExtra("overlayImagePath") ?: ""
+                val tx = intent.getFloatExtra("textX", 0.05f)
+                val ty = intent.getFloatExtra("textY", 0.05f)
+                val ix = intent.getFloatExtra("imageX", 0.7f)
+                val iy = intent.getFloatExtra("imageY", 0.05f)
+                mainHandler.post { applyOverlay(text, imagePath, tx, ty, ix, iy) }
                 return START_NOT_STICKY
             }
         }
@@ -125,16 +193,27 @@ class StreamService : Service(), ConnectChecker {
         val streamKey = intent.getStringExtra("streamKey") ?: return START_NOT_STICKY
         val audioMode = intent.getStringExtra("audioMode") ?: "internal"
         val orientation = intent.getStringExtra("orientation") ?: "landscape"
+        currentVoiceMode = intent.getStringExtra("voiceMode") ?: "normal"
+
+        val overlayText = intent.getStringExtra("overlayText") ?: ""
+        val overlayImagePath = intent.getStringExtra("overlayImagePath") ?: ""
+        val textX = intent.getFloatExtra("textX", 0.05f)
+        val textY = intent.getFloatExtra("textY", 0.05f)
+        val imageX = intent.getFloatExtra("imageX", 0.7f)
+        val imageY = intent.getFloatExtra("imageY", 0.05f)
 
         savedResultCode = resultCode
         savedData = data
+        savedOrientation = orientation
+        savedFullUrl = "$rtmpUrl/$streamKey"
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val fgsType = if (audioMode == "mic_internal")
+            val fgsType = if (audioMode == "mic_internal") {
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            else
+            } else {
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            }
             startForeground(NOTIF_ID, buildNotification(), fgsType)
         } else {
             startForeground(NOTIF_ID, buildNotification())
@@ -143,35 +222,15 @@ class StreamService : Service(), ConnectChecker {
         acquireWakeLock()
 
         val isPortrait = orientation == "portrait"
-        // Get actual screen dimensions
-        val wm = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
-        val dm = android.util.DisplayMetrics()
-        @Suppress("DEPRECATION") wm.defaultDisplay.getMetrics(dm)
-        val screenW = dm.widthPixels
-        val screenH = dm.heightPixels
-        val isScreenPortrait = screenH > screenW
-
-        // Portrait streaming: use 720x1280 with correct rotation
-        val vW: Int
-        val vH: Int
-        val rotation: Int
-        if (isPortrait) {
-            vW = 720
-            vH = 1280
-            rotation = if (isScreenPortrait) 0 else 90
-        } else {
-            vW = 1280
-            vH = 720
-            rotation = if (isScreenPortrait) 90 else 0
-        }
-        val fullUrl = "$rtmpUrl/$streamKey"
+        val vW = if (isPortrait) 720 else 1280
+        val vH = if (isPortrait) 1280 else 720
 
         mainHandler.post {
             try {
                 if (audioMode == "mic_internal" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startMixedAudio(fullUrl, vW, vH, rotation, resultCode, data)
+                    startMixedAudio(savedFullUrl, vW, vH, resultCode, data, overlayText, overlayImagePath, textX, textY, imageX, imageY)
                 } else {
-                    startInternalOnly(fullUrl, vW, vH, rotation, resultCode, data)
+                    startInternalOnly(savedFullUrl, vW, vH, resultCode, data, overlayText, overlayImagePath, textX, textY, imageX, imageY)
                 }
             } catch (e: Exception) {
                 notify("Error: ${e.message}")
@@ -184,9 +243,12 @@ class StreamService : Service(), ConnectChecker {
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun startMixedAudio(url: String, w: Int, h: Int, rotation: Int, rc: Int, d: Intent) {
-        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val mp: MediaProjection = manager.getMediaProjection(rc, d)!!
+    private fun startMixedAudio(
+        url: String, w: Int, h: Int, rc: Int, d: Intent,
+        overlayText: String, overlayImagePath: String,
+        textX: Float, textY: Float, imageX: Float, imageY: Float
+    ) {
+        val mp: MediaProjection = getMediaProjection(rc, d)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             mp.registerCallback(object : MediaProjection.Callback() {
@@ -194,40 +256,49 @@ class StreamService : Service(), ConnectChecker {
             }, mainHandler)
         }
 
-        // MixAudioSource: mic + internal audio एकत्र
-        val mix = MixAudioSource(mp)
-        mixAudioSource = mix
         val screen = ScreenSource(applicationContext, mp)
 
-        // GenericStream मध्ये MixAudioSource pass करतो — हे Mic+Internal दोन्ही capture करतो
-        genericStream = GenericStream(applicationContext, this, screen, mix).apply {
+        genericStream = GenericStream(applicationContext, this, screen,
+            MicrophoneSource(audioSource = android.media.MediaRecorder.AudioSource.MIC)).apply {
             getGlInterface().setForceRender(true)
         }
 
-        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)
-        // echoCanceler + noiseSuppressor = mic echo कमी होतो
-        val aOk = genericStream!!.prepareAudio(44100, true, 128_000, echoCanceler = true, noiseSuppressor = true)
+        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000)
+        val aOk = genericStream!!.prepareAudio(
+            sampleRate = 44100,
+            isStereo = true,
+            bitrate = 128_000,
+            echoCanceler = true,
+            noiseSuppressor = true
+        )
 
         if (vOk && aOk) {
-            // Mic volume वाढवतो — internal audio normally जास्त असतो
-            mix.microphoneVolume = 2f
+            val mix = MixAudioSource(mp)
+            mixAudioSource = mix
+            genericStream!!.changeAudioSource(mix)
+            applyVoiceEffect(currentVoiceMode)
+            applyOverlay(overlayText, overlayImagePath, textX, textY, imageX, imageY)
             genericStream!!.startStream(url)
         } else {
-            notify("Mic+Internal failed V:$vOk A:$aOk")
+            notify("Mic+Internal V:$vOk A:$aOk — switching to internal only")
             try { genericStream?.release() } catch (_: Exception) {}
             genericStream = null
             mixAudioSource = null
             mp.stop()
-            startInternalOnly(url, w, h, rotation, savedResultCode, savedData!!)
+            startInternalOnly(url, w, h, savedResultCode, savedData!!, overlayText, overlayImagePath, textX, textY, imageX, imageY)
         }
     }
 
-    private fun startInternalOnly(url: String, w: Int, h: Int, rotation: Int, rc: Int, d: Intent) {
+    private fun startInternalOnly(
+        url: String, w: Int, h: Int, rc: Int, d: Intent,
+        overlayText: String, overlayImagePath: String,
+        textX: Float, textY: Float, imageX: Float, imageY: Float
+    ) {
         rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)
+        val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000)
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true),
@@ -242,6 +313,7 @@ class StreamService : Service(), ConnectChecker {
         if (!aOk) aOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
 
         if (vOk && aOk) {
+            applyOverlay(overlayText, overlayImagePath, textX, textY, imageX, imageY)
             rtmpDisplay!!.startStream(url)
         } else {
             notify("Prepare failed V:$vOk A:$aOk")
@@ -298,6 +370,3 @@ class StreamService : Service(), ConnectChecker {
             .setOngoing(true).build()
     }
 }
-
-
-
