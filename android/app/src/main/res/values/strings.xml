@@ -1,1 +1,5 @@
-<string name="accessibility_description">YT Stream needs accessibility permission to mix microphone and game audio together for streaming.</string>
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">YT Stream</string>
+    <string name="accessibility_description">YT Stream uses accessibility to mix microphone and game audio for streaming.</string>
+</resources>
