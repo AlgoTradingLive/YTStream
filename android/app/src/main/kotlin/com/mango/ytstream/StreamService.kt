@@ -89,22 +89,7 @@ class StreamService : Service(), ConnectChecker {
     }
 
     private fun applyVoiceEffect(mode: String) {
-    // Pedro 2.7.3 मध्ये pitch effect नाही
-    // Voice changer feature skip करतो
-    // Future version मध्ये add करता येईल
-}
-            genericStream?.let { stream ->
-                // Audio filter clear करून नवीन लावतो
-                stream.clearAudioFilters()
-                if (semitones != 0f) {
-                    val effect = com.pedro.encoder.input.audio.effects.PitchEffect()
-                    effect.semitones = semitones
-                    stream.addAudioFilter(effect)
-                }
-            }
-        } catch (e: Exception) {
-            // Pitch effect support नसेल तर ignore
-        }
+        // Pedro 2.7.3 मध्ये pitch effect नाही — future version मध्ये add करता येईल
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -161,13 +146,14 @@ class StreamService : Service(), ConnectChecker {
         val isPortrait = orientation == "portrait"
         val vW = if (isPortrait) 720 else 1280
         val vH = if (isPortrait) 1280 else 720
+        val rotation = if (isPortrait) 90 else 0  // ← portrait fix
 
         mainHandler.post {
             try {
                 if (audioMode == "mic_internal" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startMixedAudio(savedFullUrl, vW, vH, resultCode, data)
+                    startMixedAudio(savedFullUrl, vW, vH, rotation, resultCode, data)
                 } else {
-                    startInternalOnly(savedFullUrl, vW, vH, resultCode, data)
+                    startInternalOnly(savedFullUrl, vW, vH, rotation, resultCode, data)
                 }
             } catch (e: Exception) {
                 notify("Error: ${e.message}")
@@ -180,7 +166,7 @@ class StreamService : Service(), ConnectChecker {
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun startMixedAudio(url: String, w: Int, h: Int, rc: Int, d: Intent) {
+    private fun startMixedAudio(url: String, w: Int, h: Int, rotation: Int, rc: Int, d: Intent) {
         val mp: MediaProjection = getMediaProjection(rc, d)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -196,8 +182,7 @@ class StreamService : Service(), ConnectChecker {
             getGlInterface().setForceRender(true)
         }
 
-        val rotation = if (w == 720) 90 else 0
-val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)
+        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)  // ← rotation add
         val aOk = genericStream!!.prepareAudio(
             sampleRate = 44100,
             isStereo = true,
@@ -210,7 +195,6 @@ val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)
             val mix = MixAudioSource(mp)
             mixAudioSource = mix
             genericStream!!.changeAudioSource(mix)
-            // Voice effect लावतो
             applyVoiceEffect(currentVoiceMode)
             genericStream!!.startStream(url)
         } else {
@@ -219,17 +203,16 @@ val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)
             genericStream = null
             mixAudioSource = null
             mp.stop()
-            startInternalOnly(url, w, h, savedResultCode, savedData!!)
+            startInternalOnly(url, w, h, rotation, savedResultCode, savedData!!)
         }
     }
 
-    private fun startInternalOnly(url: String, w: Int, h: Int, rc: Int, d: Intent) {
+    private fun startInternalOnly(url: String, w: Int, h: Int, rotation: Int, rc: Int, d: Intent) {
         rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        val rotation = if (w == 720) 90 else 0
-val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)
+        val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)  // ← rotation add
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true),
