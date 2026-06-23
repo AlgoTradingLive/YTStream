@@ -196,7 +196,8 @@ class StreamService : Service(), ConnectChecker {
             getGlInterface().setForceRender(true)
         }
 
-        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000)
+        val rotation = if (w == 720) 90 else 0
+val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)
         val aOk = genericStream!!.prepareAudio(
             sampleRate = 44100,
             isStereo = true,
@@ -227,7 +228,8 @@ class StreamService : Service(), ConnectChecker {
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000)
+        val rotation = if (w == 720) 90 else 0
+val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true),
