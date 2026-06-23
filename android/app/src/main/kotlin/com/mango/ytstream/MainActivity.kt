@@ -41,6 +41,15 @@ class MainActivity : FlutterActivity() {
                     pendingResult = result
                     checkPermissionsAndStart()
                 }
+                "setVoiceMode" -> {
+    val mode = call.argument<String>("voiceMode") ?: "normal"
+    val i = Intent(this, StreamService::class.java).apply {
+        action = "SET_VOICE"
+        putExtra("voiceMode", mode)
+    }
+    startService(i)
+    result.success(null)
+                }
                 "stopStream" -> {
                     stopStreamService()
                     result.success(null)
