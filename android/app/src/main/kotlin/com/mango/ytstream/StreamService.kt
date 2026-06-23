@@ -18,8 +18,6 @@ import android.os.PowerManager
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
-import com.pedro.encoder.input.sources.audio.InternalAudioSource
-import com.pedro.encoder.input.sources.audio.MicrophoneSource
 import com.pedro.encoder.input.sources.audio.MixAudioSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
 import com.pedro.encoder.input.sources.video.ScreenSource
@@ -42,9 +40,6 @@ class StreamService : Service(), ConnectChecker {
     private var screenReceiver: BroadcastReceiver? = null
     private var savedResultCode = -1
     private var savedData: Intent? = null
-    private var savedFullUrl = ""
-    private var savedOrientation = "landscape"
-    private var currentVoiceMode = "normal"
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -83,15 +78,6 @@ class StreamService : Service(), ConnectChecker {
         })
     }
 
-    private fun getMediaProjection(resultCode: Int, data: Intent): MediaProjection {
-        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        return manager.getMediaProjection(resultCode, data)!!
-    }
-
-    private fun applyVoiceEffect(mode: String) {
-        // Pedro 2.7.3 मध्ये pitch effect नाही — future version मध्ये add करता येईल
-    }
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             "STOP" -> { stopStreaming(); return START_NOT_STICKY }
@@ -119,12 +105,6 @@ class StreamService : Service(), ConnectChecker {
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
                 return START_NOT_STICKY
             }
-            "SET_VOICE" -> {
-                val mode = intent.getStringExtra("voiceMode") ?: "normal"
-                currentVoiceMode = mode
-                applyVoiceEffect(mode)
-                return START_NOT_STICKY
-            }
         }
 
         val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
@@ -133,25 +113,20 @@ class StreamService : Service(), ConnectChecker {
         val streamKey = intent.getStringExtra("streamKey") ?: return START_NOT_STICKY
         val audioMode = intent.getStringExtra("audioMode") ?: "internal"
         val orientation = intent.getStringExtra("orientation") ?: "landscape"
-        currentVoiceMode = intent.getStringExtra("voiceMode") ?: "normal"
 
         savedResultCode = resultCode
         savedData = data
-        savedOrientation = orientation
-        savedFullUrl = "$rtmpUrl/$streamKey"
 
-        
-if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-    val fgsType = if (audioMode == "mic_internal") {
-        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
-        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-    } else {
-        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-    }
-    startForeground(NOTIF_ID, buildNotification(), fgsType)
-} else {
-    startForeground(NOTIF_ID, buildNotification())
-}
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val fgsType = if (audioMode == "mic_internal")
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            else
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            startForeground(NOTIF_ID, buildNotification(), fgsType)
+        } else {
+            startForeground(NOTIF_ID, buildNotification())
+        }
 
         acquireWakeLock()
 
@@ -159,13 +134,14 @@ if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val vW = if (isPortrait) 720 else 1280
         val vH = if (isPortrait) 1280 else 720
         val rotation = if (isPortrait) 90 else 0
+        val fullUrl = "$rtmpUrl/$streamKey"
 
         mainHandler.post {
             try {
                 if (audioMode == "mic_internal" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startMixedAudio(savedFullUrl, vW, vH, rotation, resultCode, data)
+                    startMixedAudio(fullUrl, vW, vH, rotation, resultCode, data)
                 } else {
-                    startInternalOnly(savedFullUrl, vW, vH, rotation, resultCode, data)
+                    startInternalOnly(fullUrl, vW, vH, rotation, resultCode, data)
                 }
             } catch (e: Exception) {
                 notify("Error: ${e.message}")
@@ -179,7 +155,8 @@ if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
 
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun startMixedAudio(url: String, w: Int, h: Int, rotation: Int, rc: Int, d: Intent) {
-        val mp: MediaProjection = getMediaProjection(rc, d)
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        val mp: MediaProjection = manager.getMediaProjection(rc, d)!!
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             mp.registerCallback(object : MediaProjection.Callback() {
@@ -187,30 +164,26 @@ if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             }, mainHandler)
         }
 
+        // MixAudioSource: mic + internal audio एकत्र
+        val mix = MixAudioSource(mp)
+        mixAudioSource = mix
         val screen = ScreenSource(applicationContext, mp)
 
-        genericStream = GenericStream(applicationContext, this, screen,
-            MicrophoneSource(audioSource = android.media.MediaRecorder.AudioSource.MIC)).apply {
+        // GenericStream मध्ये MixAudioSource pass करतो — हे Mic+Internal दोन्ही capture करतो
+        genericStream = GenericStream(applicationContext, this, screen, mix).apply {
             getGlInterface().setForceRender(true)
         }
 
-        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)  // ← rotation add
-        val aOk = genericStream!!.prepareAudio(
-            sampleRate = 44100,
-            isStereo = true,
-            bitrate = 128_000,
-            echoCanceler = true,
-            noiseSuppressor = true
-        )
+        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)
+        // echoCanceler + noiseSuppressor = mic echo कमी होतो
+        val aOk = genericStream!!.prepareAudio(44100, true, 128_000, echoCanceler = true, noiseSuppressor = true)
 
         if (vOk && aOk) {
-            val mix = MixAudioSource(mp)
-            mixAudioSource = mix
-            genericStream!!.changeAudioSource(mix)
-            applyVoiceEffect(currentVoiceMode)
+            // Mic volume वाढवतो — internal audio normally जास्त असतो
+            mix.microphoneVolume = 2f
             genericStream!!.startStream(url)
         } else {
-            notify("Mic+Internal V:$vOk A:$aOk — switching to internal only")
+            notify("Mic+Internal failed V:$vOk A:$aOk")
             try { genericStream?.release() } catch (_: Exception) {}
             genericStream = null
             mixAudioSource = null
@@ -224,7 +197,7 @@ if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)  // ← rotation add
+        val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000, 24, 2, rotation)
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true),
@@ -295,4 +268,3 @@ if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             .setOngoing(true).build()
     }
 }
-
