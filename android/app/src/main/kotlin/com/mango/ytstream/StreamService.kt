@@ -20,7 +20,7 @@ import android.os.PowerManager
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
-import com.pedro.encoder.input.sources.audio.MicrophoneSource
+import com.pedro.encoder.input.sources.audio.MixAudioSource
 import com.pedro.encoder.input.sources.audio.MixAudioSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
 import com.pedro.encoder.input.sources.video.ScreenSource
@@ -165,6 +165,16 @@ class StreamService : Service(), ConnectChecker {
             "UNMUTE" -> {
                 rtmpDisplay?.enableAudio()
                 mixAudioSource?.let { genericStream?.changeAudioSource(it) }
+                mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
+                return START_NOT_STICKY
+            }
+            "MIC_MUTE" -> {
+                mixAudioSource?.microphoneVolume = 0f
+                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "🎤 Mic Muted") }
+                return START_NOT_STICKY
+            }
+            "MIC_UNMUTE" -> {
+                mixAudioSource?.microphoneVolume = 2f
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
                 return START_NOT_STICKY
             }
