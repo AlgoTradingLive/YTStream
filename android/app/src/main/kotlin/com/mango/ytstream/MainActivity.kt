@@ -27,6 +27,12 @@ class MainActivity : FlutterActivity() {
     private var pendingStreamKey: String? = null
     private var pendingAudioMode: String? = null
     private var pendingOrientation: String? = null
+    private var pendingOverlayText: String? = null
+    private var pendingOverlayImagePath: String? = null
+    private var pendingTextX: Double = 0.05
+    private var pendingTextY: Double = 0.05
+    private var pendingImageX: Double = 0.7
+    private var pendingImageY: Double = 0.05
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -38,17 +44,36 @@ class MainActivity : FlutterActivity() {
                     pendingStreamKey = call.argument("streamKey")
                     pendingAudioMode = call.argument("audioMode") ?: "internal"
                     pendingOrientation = call.argument("orientation") ?: "landscape"
+                    pendingOverlayText = call.argument("overlayText") ?: ""
+                    pendingOverlayImagePath = call.argument("overlayImagePath") ?: ""
+                    pendingTextX = call.argument("textX") ?: 0.05
+                    pendingTextY = call.argument("textY") ?: 0.05
+                    pendingImageX = call.argument("imageX") ?: 0.7
+                    pendingImageY = call.argument("imageY") ?: 0.05
                     pendingResult = result
                     checkPermissionsAndStart()
                 }
+                "updateOverlay" -> {
+                    val i = Intent(this, StreamService::class.java).apply {
+                        action = "UPDATE_OVERLAY"
+                        putExtra("overlayText", call.argument("overlayText") ?: "")
+                        putExtra("overlayImagePath", call.argument("overlayImagePath") ?: "")
+                        putExtra("textX", (call.argument("textX") as? Double)?.toFloat() ?: 0.05f)
+                        putExtra("textY", (call.argument("textY") as? Double)?.toFloat() ?: 0.05f)
+                        putExtra("imageX", (call.argument("imageX") as? Double)?.toFloat() ?: 0.7f)
+                        putExtra("imageY", (call.argument("imageY") as? Double)?.toFloat() ?: 0.05f)
+                    }
+                    startService(i)
+                    result.success(null)
+                }
                 "setVoiceMode" -> {
-    val mode = call.argument<String>("voiceMode") ?: "normal"
-    val i = Intent(this, StreamService::class.java).apply {
-        action = "SET_VOICE"
-        putExtra("voiceMode", mode)
-    }
-    startService(i)
-    result.success(null)
+                    val mode = call.argument<String>("voiceMode") ?: "normal"
+                    val i = Intent(this, StreamService::class.java).apply {
+                        action = "SET_VOICE"
+                        putExtra("voiceMode", mode)
+                    }
+                    startService(i)
+                    result.success(null)
                 }
                 "stopStream" -> {
                     stopStreamService()
@@ -60,7 +85,6 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun checkPermissionsAndStart() {
-        // Mic permission check — audioMode mic_internal असेल तरच
         if (pendingAudioMode == "mic_internal") {
             if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -119,6 +143,12 @@ class MainActivity : FlutterActivity() {
                         putExtra("streamKey", pendingStreamKey)
                         putExtra("audioMode", pendingAudioMode)
                         putExtra("orientation", pendingOrientation)
+                        putExtra("overlayText", pendingOverlayText ?: "")
+                        putExtra("overlayImagePath", pendingOverlayImagePath ?: "")
+                        putExtra("textX", pendingTextX.toFloat())
+                        putExtra("textY", pendingTextY.toFloat())
+                        putExtra("imageX", pendingImageX.toFloat())
+                        putExtra("imageY", pendingImageY.toFloat())
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
                     else startService(intent)
