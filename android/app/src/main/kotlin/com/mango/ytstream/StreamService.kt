@@ -185,15 +185,21 @@ class StreamService : Service(), ConnectChecker {
                 return START_NOT_STICKY
             }
             "UPDATE_OVERLAY" -> {
-                val text = intent.getStringExtra("overlayText") ?: ""
-                val imagePath = intent.getStringExtra("overlayImagePath") ?: ""
-                val tx = intent.getFloatExtra("textX", 0.05f)
-                val ty = intent.getFloatExtra("textY", 0.05f)
-                val ix = intent.getFloatExtra("imageX", 0.7f)
-                val iy = intent.getFloatExtra("imageY", 0.05f)
-                mainHandler.post { applyOverlay(text, imagePath, tx, ty, ix, iy) }
-                return START_NOT_STICKY
-            }
+    val text = intent.getStringExtra("overlayText") ?: ""
+    val imagePath = intent.getStringExtra("overlayImagePath") ?: ""
+    val tx = intent.getFloatExtra("textX", 0.05f)
+    val ty = intent.getFloatExtra("textY", 0.05f)
+    val ix = intent.getFloatExtra("imageX", 0.7f)
+    val iy = intent.getFloatExtra("imageY", 0.05f)
+    mainHandler.post {
+        // ✅ Stream चालू आहे का check करतो
+        val isLive = genericStream?.isStreaming == true || rtmpDisplay?.isStreaming == true
+        if (isLive) {
+            applyOverlay(text, imagePath, tx, ty, ix, iy)
+        }
+    }
+    return START_NOT_STICKY
+}
         }
 
         val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
