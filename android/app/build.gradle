@@ -12,8 +12,17 @@ android {
         applicationId "com.mango.ytstream"
         minSdk 29
         targetSdk 36
-        versionCode 7
-        versionName "1.6.0"
+        versionCode 2
+        versionName "1.2.0"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("keystore/ytstream.jks")
+            storePassword "ytstream2026"
+            keyAlias "ytstream"
+            keyPassword "ytstream2026"
+        }
     }
 
     compileOptions {
@@ -27,7 +36,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled false
             shrinkResources false
         }
