@@ -1,4 +1,4 @@
-name: Build YT Stream APK
+name: Build YT Stream
 
 on:
   push:
@@ -27,11 +27,20 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Build APK
+      - name: Build APK (debug install)
         run: flutter build apk --release --no-obfuscate
+
+      - name: Build AAB (Play Store)
+        run: flutter build appbundle --release --no-obfuscate
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ytstream-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: ytstream-aab
+          path: build/app/outputs/bundle/release/app-release.aab
