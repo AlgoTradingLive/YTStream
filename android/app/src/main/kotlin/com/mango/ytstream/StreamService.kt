@@ -117,8 +117,7 @@ class StreamService : Service(), ConnectChecker {
             val tf = TextObjectFilterRender()
             tf.setScale(30f, 10f)
             tf.setPosition(textX * 100f, textY * 100f)
-            tf.setText(overlayText, 60f, Color.WHITE)
-            tf.setDefaultRender()
+            tf.setText(overlayText, 60f, Color.WHITE
             glInterface.addFilter(tf)
             textFilter = tf
         }
@@ -133,7 +132,7 @@ class StreamService : Service(), ConnectChecker {
                 val sf = ImageObjectFilterRender()
                 sf.setScale(25f, 25f)
                 sf.setPosition(imageX * 100f, imageY * 100f)
-                sf.setDefaultRender()
+                
                 sf.setImage(bitmap)
                 glInterface.addFilter(sf)
                 imageFilter = sf
