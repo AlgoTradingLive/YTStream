@@ -144,7 +144,7 @@ class _StreamPageState extends State<StreamPage> {
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
-    final picked = await picker.pickImage(source: ImageSource.gallery);
+    final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 100);
     if (picked != null) {
       setState(() => _overlayImagePath = picked.path);
       await _savePref();
@@ -285,7 +285,7 @@ class _StreamPageState extends State<StreamPage> {
                     platform.invokeMethod('updateOverlay', {
                       'overlayText': _overlayText,
                       'overlayImagePath': _overlayImagePath ?? '',
-                      'textX': _textX, 'textY': _textY,
+                      'textX': x, 'textY': y,  // fix: setState नंतरची updated values
                       'imageX': _imageX, 'imageY': _imageY,
                     });
                   }
@@ -313,7 +313,7 @@ class _StreamPageState extends State<StreamPage> {
                       'overlayText': _overlayText,
                       'overlayImagePath': _overlayImagePath ?? '',
                       'textX': _textX, 'textY': _textY,
-                      'imageX': _imageX, 'imageY': _imageY,
+                      'imageX': x, 'imageY': y,  // fix: updated values
                     });
                   }
                 },
