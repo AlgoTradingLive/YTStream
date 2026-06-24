@@ -115,22 +115,22 @@ class StreamService : Service(), ConnectChecker {
 
         if (overlayText.isNotEmpty()) {
             val tf = TextObjectFilterRender()
-            tf.setScale(30f, 10f)
+            tf.setScale(40f, 8f)
             tf.setPosition(textX * 100f, textY * 100f)
-            tf.setText(overlayText, 60f, Color.WHITE)
+            tf.setText(overlayText, 72f, Color.WHITE)
             glInterface.addFilter(tf)
             textFilter = tf
         }
 
         if (overlayImagePath.isNotEmpty()) {
-            val options = BitmapFactory.Options().apply {
-                inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
-                inSampleSize = 1
-            }
-            val bitmap = BitmapFactory.decodeFile(overlayImagePath, options)
+            val bitmap = BitmapFactory.decodeFile(overlayImagePath)
             if (bitmap != null) {
                 val sf = ImageObjectFilterRender()
-                sf.setScale(25f, 25f)
+                // Image aspect ratio maintain करतो
+                val ratio = bitmap.width.toFloat() / bitmap.height.toFloat()
+                val scaleH = 20f
+                val scaleW = scaleH * ratio
+                sf.setScale(scaleW, scaleH)
                 sf.setPosition(imageX * 100f, imageY * 100f)
                 sf.setImage(bitmap)
                 glInterface.addFilter(sf)
@@ -140,6 +140,7 @@ class StreamService : Service(), ConnectChecker {
     } catch (e: Exception) {
         notify("Overlay error: ${e.message}")
     }
+
 }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -192,13 +193,8 @@ class StreamService : Service(), ConnectChecker {
     val ty = intent.getFloatExtra("textY", 0.05f)
     val ix = intent.getFloatExtra("imageX", 0.7f)
     val iy = intent.getFloatExtra("imageY", 0.05f)
-    mainHandler.post {
-        // ✅ Stream चालू आहे का check करतो
-        val isLive = genericStream?.isStreaming == true || rtmpDisplay?.isStreaming == true
-        if (isLive) {
-            applyOverlay(text, imagePath, tx, ty, ix, iy)
-        }
-    }
+    // ✅ isLive check काढला — stream नंतर apply होईल
+    mainHandler.post { applyOverlay(text, imagePath, tx, ty, ix, iy) }
     return START_NOT_STICKY
 }
         }
@@ -293,8 +289,10 @@ class StreamService : Service(), ConnectChecker {
             mixAudioSource = mix
             genericStream!!.changeAudioSource(mix)
             applyVoiceEffect(currentVoiceMode)
-            applyOverlay(overlayText, overlayImagePath, textX, textY, imageX, imageY)
             genericStream!!.startStream(url)
+mainHandler.postDelayed({
+    applyOverlay(overlayText, overlayImagePath, textX, textY, imageX, imageY)
+}, 500)
         } else {
             notify("Mic+Internal V:$vOk A:$aOk — switching to internal only")
             try { genericStream?.release() } catch (_: Exception) {}
@@ -329,8 +327,10 @@ class StreamService : Service(), ConnectChecker {
         if (!aOk) aOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
 
         if (vOk && aOk) {
-            applyOverlay(overlayText, overlayImagePath, textX, textY, imageX, imageY)
             rtmpDisplay!!.startStream(url)
+mainHandler.postDelayed({
+    applyOverlay(overlayText, overlayImagePath, textX, textY, imageX, imageY)
+}, 500)
         } else {
             notify("Prepare failed V:$vOk A:$aOk")
             releaseWakeLock()
