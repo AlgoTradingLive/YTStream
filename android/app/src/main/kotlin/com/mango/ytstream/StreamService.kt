@@ -108,31 +108,34 @@ class StreamService : Service(), ConnectChecker {
     try {
         val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return
 
-        // आधीचे filters काढा
         textFilter?.let { try { glInterface.removeFilter(it) } catch (_: Exception) {} }
         imageFilter?.let { try { glInterface.removeFilter(it) } catch (_: Exception) {} }
         textFilter = null
         imageFilter = null
 
-        // Text overlay
         if (overlayText.isNotEmpty()) {
             val tf = TextObjectFilterRender()
-            glInterface.addFilter(tf)
             tf.setScale(30f, 10f)
             tf.setPosition(textX * 100f, textY * 100f)
             tf.setText(overlayText, 60f, Color.WHITE)
+            tf.setDefaultRender()
+            glInterface.addFilter(tf)
             textFilter = tf
         }
 
-        // Image overlay
         if (overlayImagePath.isNotEmpty()) {
-            val bitmap = BitmapFactory.decodeFile(overlayImagePath)
+            val options = BitmapFactory.Options().apply {
+                inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+                inSampleSize = 1
+            }
+            val bitmap = BitmapFactory.decodeFile(overlayImagePath, options)
             if (bitmap != null) {
                 val sf = ImageObjectFilterRender()
-                glInterface.addFilter(sf)
-                sf.setScale(20f, 20f)
+                sf.setScale(25f, 25f)
                 sf.setPosition(imageX * 100f, imageY * 100f)
+                sf.setDefaultRender()
                 sf.setImage(bitmap)
+                glInterface.addFilter(sf)
                 imageFilter = sf
             }
         }
