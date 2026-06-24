@@ -123,10 +123,19 @@ class StreamService : Service(), ConnectChecker {
         }
 
         if (overlayImagePath.isNotEmpty()) {
-            val bitmap = BitmapFactory.decodeFile(overlayImagePath)
+            // ✅ High quality bitmap
+            val opts = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            BitmapFactory.decodeFile(overlayImagePath, opts)
+            val opts2 = BitmapFactory.Options().apply {
+                inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+                inSampleSize = 1
+                inScaled = false
+            }
+            val bitmap = BitmapFactory.decodeFile(overlayImagePath, opts2)
             if (bitmap != null) {
                 val sf = ImageObjectFilterRender()
-                // Image aspect ratio maintain करतो
                 val ratio = bitmap.width.toFloat() / bitmap.height.toFloat()
                 val scaleH = 20f
                 val scaleW = scaleH * ratio
@@ -140,7 +149,7 @@ class StreamService : Service(), ConnectChecker {
     } catch (e: Exception) {
         notify("Overlay error: ${e.message}")
     }
-
+    
 }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -193,8 +202,18 @@ class StreamService : Service(), ConnectChecker {
     val ty = intent.getFloatExtra("textY", 0.05f)
     val ix = intent.getFloatExtra("imageX", 0.7f)
     val iy = intent.getFloatExtra("imageY", 0.05f)
-    // ✅ isLive check काढला — stream नंतर apply होईल
-    mainHandler.post { applyOverlay(text, imagePath, tx, ty, ix, iy) }
+    // ✅ Retry 3 वेळा — glInterface ready होईपर्यंत
+    var attempts = 0
+    fun tryApply() {
+        val gl = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface
+        if (gl != null) {
+            mainHandler.post { applyOverlay(text, imagePath, tx, ty, ix, iy) }
+        } else if (attempts < 3) {
+            attempts++
+            mainHandler.postDelayed({ tryApply() }, 1000)
+        }
+    }
+    mainHandler.post { tryApply() }
     return START_NOT_STICKY
 }
         }
