@@ -196,6 +196,9 @@ class StreamService : Service(), ConnectChecker {
                 return START_NOT_STICKY
             }
             "UPDATE_OVERLAY" -> {
+    val isStreaming = rtmpDisplay?.isStreaming == true || genericStream?.isStreaming == true
+    if (!isStreaming) return START_NOT_STICKY  // streaming नसेल तर skip
+
     val text = intent.getStringExtra("overlayText") ?: ""
     val imagePath = intent.getStringExtra("overlayImagePath") ?: ""
     val tx = intent.getFloatExtra("textX", 0.05f)
