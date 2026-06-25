@@ -28,6 +28,7 @@ import com.pedro.encoder.input.video.CameraHelper
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
 import com.pedro.library.rtmp.RtmpDisplay
+import com.pedro.encoder.input.gl.render.filters.BaseFilterRender
 import com.pedro.encoder.input.gl.render.filters.`object`.TextObjectFilterRender
 import com.pedro.encoder.input.gl.render.filters.`object`.ImageObjectFilterRender
 
@@ -194,21 +195,32 @@ class StreamService : Service(), ConnectChecker {
     }
 
     private fun applyCameraAsOverlay(cam: Camera2Source) {
-        try {
-            val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return
-            // Camera2Source ला GlInterface वर render करतो
-            // Portrait: bottom 30% — x=0, y=70%
-            // Landscape: corner — x=75%, y=0
-            val isPortrait = savedOrientation == "portrait"
-            val camX = if (isPortrait) 0f else 75f
-            val camY = if (isPortrait) 70f else 0f
-            val camW = if (isPortrait) 100f else 25f
-            val camH = if (isPortrait) 30f else 25f
+    try {
+        val glInterface = genericStream?.getGlInterface() 
+            ?: rtmpDisplay?.glInterface ?: return
 
-            cam.setScale(camW, camH)
-            cam.setPosition(camX, camY)
-            glInterface.addFilter(cam as? com.pedro.encoder.input.gl.render.filters.BaseFilterRender ?: return)
-        } catch (_: Exception) {}
+        val isPortrait = savedOrientation == "portrait"
+        val camX = if (isPortrait) 0f else 75f
+        val camY = if (isPortrait) 70f else 0f
+        val camW = if (isPortrait) 100f else 25f
+        val camH = if (isPortrait) 30f else 25f
+
+        // ❌ जुने (काम करत नाही):
+        // cam.setScale(camW, camH)
+        // cam.setPosition(camX, camY)
+
+        // ✅ नवीन - filter add करताना position/scale द्या:
+        val filterRender = cam as? BaseFilterRender ?: run {
+            glInterface.addFilter(cam as BaseFilterRender)
+            return
+        }
+        
+        filterRender.setScale(camW, camH)
+        filterRender.setPosition(camX, camY)
+        glInterface.addFilter(filterRender)
+
+    } catch (_: Exception) {}
+    
     }
 
     private fun disableCamera() {
