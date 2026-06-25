@@ -302,7 +302,7 @@ class StreamService : Service(), ConnectChecker {
             getGlInterface().setForceRender(true)
         }
 
-        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 30, 1)
+        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, fps = 30, iFrameInterval = 1)
         val aOk = genericStream!!.prepareAudio(
             sampleRate = 44100,
             isStereo = true,
