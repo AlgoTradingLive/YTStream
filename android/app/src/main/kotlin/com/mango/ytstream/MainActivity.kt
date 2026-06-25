@@ -33,6 +33,7 @@ class MainActivity : FlutterActivity() {
     private var pendingTextY: Double = 0.05
     private var pendingImageX: Double = 0.7
     private var pendingImageY: Double = 0.05
+    private var pendingCameraEnabled: Boolean = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -50,6 +51,7 @@ class MainActivity : FlutterActivity() {
                     pendingTextY = call.argument("textY") ?: 0.05
                     pendingImageX = call.argument("imageX") ?: 0.7
                     pendingImageY = call.argument("imageY") ?: 0.05
+                    pendingCameraEnabled = call.argument("cameraEnabled") ?: false
                     pendingResult = result
                     checkPermissionsAndStart()
                 }
