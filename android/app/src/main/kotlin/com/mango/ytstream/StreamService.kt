@@ -339,7 +339,16 @@ mainHandler.postDelayed({
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000, 30, 2, rotation)
+   
+
+
+val vOk = rtmpDisplay!!.prepareVideo(
+    width = w,
+    height = h,
+    fps = 30,
+    bitrate = 2_000_000,
+    iFrameInterval = 2  
+)
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true),
