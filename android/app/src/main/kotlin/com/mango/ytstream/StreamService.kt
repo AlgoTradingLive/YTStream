@@ -23,12 +23,12 @@ import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.sources.audio.MicrophoneSource
 import com.pedro.encoder.input.sources.audio.MixAudioSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
-import com.pedro.encoder.input.sources.video.Camera2Source
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
 import com.pedro.library.rtmp.RtmpDisplay
 import com.pedro.encoder.input.gl.render.filters.`object`.TextObjectFilterRender
 import com.pedro.encoder.input.gl.render.filters.`object`.ImageObjectFilterRender
+import com.pedro.encoder.input.gl.render.TranslateTo
 
 class StreamService : Service(), ConnectChecker {
 
@@ -40,9 +40,6 @@ class StreamService : Service(), ConnectChecker {
 
     private var rtmpDisplay: RtmpDisplay? = null
     private var genericStream: GenericStream? = null
-    private var camera2Source: Camera2Source? = null
-    private var isCameraEnabled = false
-    private var isFrontCamera = true
     private var mixAudioSource: MixAudioSource? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wakeLock: PowerManager.WakeLock? = null
@@ -53,7 +50,6 @@ class StreamService : Service(), ConnectChecker {
     private var savedOrientation = "landscape"
     private var currentVoiceMode = "normal"
 
-    // Overlay
     private var textFilter: TextObjectFilterRender? = null
     private var imageFilter: ImageObjectFilterRender? = null
     private var lastOverlayText = ""
@@ -109,11 +105,23 @@ class StreamService : Service(), ConnectChecker {
         // Pedro 2.7.3 मध्ये pitch effect नाही
     }
 
+    private fun getTranslateTo(x: Float, y: Float): TranslateTo {
+        return when {
+            x < 0.33f && y < 0.33f -> TranslateTo.TOP_LEFT
+            x in 0.33f..0.66f && y < 0.33f -> TranslateTo.TOP
+            x > 0.66f && y < 0.33f -> TranslateTo.TOP_RIGHT
+            x < 0.33f && y in 0.33f..0.66f -> TranslateTo.LEFT
+            x in 0.33f..0.66f && y in 0.33f..0.66f -> TranslateTo.CENTER
+            x > 0.66f && y in 0.33f..0.66f -> TranslateTo.RIGHT
+            x < 0.33f && y > 0.66f -> TranslateTo.BOTTOM_LEFT
+            x in 0.33f..0.66f && y > 0.66f -> TranslateTo.BOTTOM
+            else -> TranslateTo.BOTTOM_RIGHT
+        }
+    }
+
     private fun applyOverlay(
-        overlayText: String,
-        overlayImagePath: String,
-        textX: Float, textY: Float,
-        imageX: Float, imageY: Float
+        overlayText: String, overlayImagePath: String,
+        textX: Float, textY: Float, imageX: Float, imageY: Float
     ) {
         lastOverlayText = overlayText
         lastOverlayImagePath = overlayImagePath
@@ -129,96 +137,25 @@ class StreamService : Service(), ConnectChecker {
 
             if (overlayText.isNotEmpty()) {
                 val tf = TextObjectFilterRender()
-                tf.setScale(40f, 8f)
-                tf.setPosition(textX * 100f, textY * 100f)
-                tf.setText(overlayText, 72f, Color.WHITE)
+                tf.setDefaultScale(0.35f, 0.1f)
+                tf.setPosition(getTranslateTo(textX, textY))
+                tf.setText(overlayText, 48f, Color.WHITE)
                 glInterface.addFilter(tf)
                 textFilter = tf
             }
 
             if (overlayImagePath.isNotEmpty()) {
-                val opts2 = BitmapFactory.Options().apply {
-                    inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
-                    inSampleSize = 1
-                    inScaled = false
-                }
-                val bitmap = BitmapFactory.decodeFile(overlayImagePath, opts2)
+                val bitmap = BitmapFactory.decodeFile(overlayImagePath)
                 if (bitmap != null) {
                     val sf = ImageObjectFilterRender()
-                    val ratio = bitmap.width.toFloat() / bitmap.height.toFloat()
-                    val scaleH = 20f
-                    sf.setScale(scaleH * ratio, scaleH)
-                    sf.setPosition(imageX * 100f, imageY * 100f)
+                    sf.setDefaultScale(0.2f, 0.2f)
+                    sf.setPosition(getTranslateTo(imageX, imageY))
                     sf.setImage(bitmap)
                     glInterface.addFilter(sf)
                     imageFilter = sf
                 }
             }
-        } catch (e: Exception) {
-            notify("Overlay error: ${e.message}")
-        }
-    }
-
-    private fun enableCamera() {
-        try {
-            val cam = Camera2Source(applicationContext)
-            camera2Source = cam
-
-            // Camera2Source ला GenericStream मध्ये video source म्हणून add करा
-            val gs = genericStream
-            if (gs != null) {
-                // Pedro Wiki: changeVideoSource() केल्यावर library स्वतः camera start करते
-                // init() method नाही — facing साठी switchCamera() वापरा
-                gs.changeVideoSource(cam)
-                // Default front camera असेल, back हवा असेल तर switch करा
-                if (!isFrontCamera) cam.switchCamera()
-            }
-            // RtmpDisplay साठी camera overlay वेगळ्या प्रकारे handle होत नाही
-            // त्यामुळे फक्त GenericStream mode मध्ये camera PiP support आहे
-
-            isCameraEnabled = true
-            mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera ON") }
-        } catch (e: Exception) {
-            mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "Camera error: ${e.message}") }
-        }
-    }
-
-    private fun applyCameraAsOverlay(@Suppress("UNUSED_PARAMETER") cam: Camera2Source) {
-        // Camera2Source हा BaseFilterRender नाही — तो VideoSource आहे.
-        // PiP camera साठी changeVideoSource() वापरणे आवश्यक आहे (enableCamera मध्ये केले आहे).
-        // हा method backward-compat साठी ठेवला आहे.
-    }
-
-
-    private fun disableCamera() {
-        try {
-            camera2Source?.let { cam ->
-                // GenericStream असेल तर ScreenSource वर परत जा
-                genericStream?.let { gs ->
-                    try {
-                        val screen = ScreenSource(applicationContext,
-                            getMediaProjection(savedResultCode, savedData!!))
-                        gs.changeVideoSource(screen)
-                    } catch (_: Exception) {}
-                }
-                cam.stop()
-                cam.release()
-            }
-            camera2Source = null
-            isCameraEnabled = false
-            mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera OFF") }
         } catch (_: Exception) {}
-    }
-
-    private fun switchCamera() {
-        try {
-            isFrontCamera = !isFrontCamera
-            camera2Source?.switchCamera()
-            val msg = if (isFrontCamera) "📷 Front Camera" else "📷 Back Camera"
-            mainHandler.post { mainActivity?.notifyFlutter("onStreamError", msg) }
-        } catch (e: Exception) {
-            mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "Switch error: ${e.message}") }
-        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -250,24 +187,10 @@ class StreamService : Service(), ConnectChecker {
             }
             "MIC_MUTE" -> {
                 mixAudioSource?.microphoneVolume = 0f
-                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "🎤 Mic Muted") }
                 return START_NOT_STICKY
             }
             "MIC_UNMUTE" -> {
                 mixAudioSource?.microphoneVolume = 1f
-                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "🎤 Mic ON") }
-                return START_NOT_STICKY
-            }
-            "CAMERA_ON" -> {
-                mainHandler.post { enableCamera() }
-                return START_NOT_STICKY
-            }
-            "CAMERA_OFF" -> {
-                mainHandler.post { disableCamera() }
-                return START_NOT_STICKY
-            }
-            "CAMERA_SWITCH" -> {
-                mainHandler.post { switchCamera() }
                 return START_NOT_STICKY
             }
             "SET_VOICE" -> {
@@ -323,20 +246,15 @@ class StreamService : Service(), ConnectChecker {
         acquireWakeLock()
 
         val isPortrait = orientation == "portrait"
-        val wm = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
-        val dm = android.util.DisplayMetrics()
-        @Suppress("DEPRECATION") wm.defaultDisplay.getMetrics(dm)
-        val isScreenPortrait = dm.heightPixels > dm.widthPixels
         val vW = if (isPortrait) 720 else 1280
         val vH = if (isPortrait) 1280 else 720
-        val rotation = if (isPortrait) { if (isScreenPortrait) 0 else 90 } else { if (isScreenPortrait) 90 else 0 }
 
         mainHandler.post {
             try {
                 if (audioMode == "mic_internal" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startMixedAudio(savedFullUrl, vW, vH, rotation, resultCode, data)
+                    startMixedAudio(savedFullUrl, vW, vH, resultCode, data)
                 } else {
-                    startInternalOnly(savedFullUrl, vW, vH, rotation, resultCode, data)
+                    startInternalOnly(savedFullUrl, vW, vH, resultCode, data)
                 }
             } catch (e: Exception) {
                 notify("Error: ${e.message}")
@@ -349,7 +267,7 @@ class StreamService : Service(), ConnectChecker {
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun startMixedAudio(url: String, w: Int, h: Int, rotation: Int, rc: Int, d: Intent) {
+    private fun startMixedAudio(url: String, w: Int, h: Int, rc: Int, d: Intent) {
         val mp: MediaProjection = getMediaProjection(rc, d)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -364,14 +282,16 @@ class StreamService : Service(), ConnectChecker {
             getGlInterface().setForceRender(true)
         }
 
-        val vOk = genericStream!!.prepareVideo(w, h, 30, 2_000_000, 2)
-        val aOk = genericStream!!.prepareAudio(44100, true, 128_000, true, true)
+        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000)
+        val aOk = genericStream!!.prepareAudio(
+            sampleRate = 44100, isStereo = true, bitrate = 128_000,
+            echoCanceler = true, noiseSuppressor = true
+        )
 
         if (vOk && aOk) {
             val mix = MixAudioSource(mp)
             mixAudioSource = mix
             genericStream!!.changeAudioSource(mix)
-            applyVoiceEffect(currentVoiceMode)
             genericStream!!.startStream(url)
             mainHandler.postDelayed({
                 applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY)
@@ -380,16 +300,16 @@ class StreamService : Service(), ConnectChecker {
             notify("Mic+Internal V:$vOk A:$aOk — switching to internal only")
             try { genericStream?.release() } catch (_: Exception) {}
             genericStream = null; mixAudioSource = null; mp.stop()
-            startInternalOnly(url, w, h, rotation, savedResultCode, savedData!!)
+            startInternalOnly(url, w, h, savedResultCode, savedData!!)
         }
     }
 
-    private fun startInternalOnly(url: String, w: Int, h: Int, rotation: Int, rc: Int, d: Intent) {
+    private fun startInternalOnly(url: String, w: Int, h: Int, rc: Int, d: Intent) {
         rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        val vOk = rtmpDisplay!!.prepareVideo(w, h, 30, 2_000_000, rotation, 2)
+        val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000)
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true), Triple(128_000, 44100, false),
