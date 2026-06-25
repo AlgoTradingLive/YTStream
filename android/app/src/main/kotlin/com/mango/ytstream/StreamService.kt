@@ -168,9 +168,10 @@ class StreamService : Service(), ConnectChecker {
             // Camera2Source ला GenericStream मध्ये video source म्हणून add करा
             val gs = genericStream
             if (gs != null) {
-                // init(width, height, fps, rotation, facing)
+                // init(width, height, fps, rotation) — facing नंतर setCameraFacing ने
+                cam.init(640, 480, 30, 0)
                 val facing = if (isFrontCamera) CameraHelper.Facing.FRONT else CameraHelper.Facing.BACK
-                cam.init(640, 480, 30, 0, facing)
+                cam.setCameraFacing(facing)
                 gs.changeVideoSource(cam)
             }
             // RtmpDisplay साठी camera overlay वेगळ्या प्रकारे handle होत नाही
