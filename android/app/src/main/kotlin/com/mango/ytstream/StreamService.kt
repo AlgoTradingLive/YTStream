@@ -214,7 +214,7 @@ private fun setupCamera() {
 }
 "CAMERA_SWITCH" -> {
     cameraFacing = if (cameraFacing == "back") "front" else "back"
-    try { camera2Source?.stop() } catch (_: Exception) {}
+    
     camera2Source = null
     mainHandler.postDelayed({ setupCamera() }, 300)
     return START_NOT_STICKY
