@@ -65,6 +65,9 @@ class _StreamPageState extends State<StreamPage> {
   String _rtmpUrl = 'rtmps://a.rtmps.youtube.com/live2';
   String _audioMode = 'internal';
   String _orientation = 'landscape';
+  bool _cameraEnabled = false;
+String _cameraFacing = 'back'; // back or front
+String _cameraMode = 'pip'; // pip or split
 
   // Colors based on theme
   Color get bg => widget.isDark ? const Color(0xFF0D0D0D) : const Color(0xFFF5F5F5);
@@ -89,6 +92,9 @@ class _StreamPageState extends State<StreamPage> {
       _rtmpUrl = p.getString('rtmp_url') ?? 'rtmps://a.rtmps.youtube.com/live2';
       _audioMode = p.getString('audio_mode') ?? 'internal';
       _orientation = p.getString('orientation') ?? 'landscape';
+      _cameraEnabled = p.getBool('camera_enabled') ?? false;
+_cameraFacing = p.getString('camera_facing') ?? 'back';
+_cameraMode = p.getString('camera_mode') ?? 'pip';
     });
   }
 
@@ -98,6 +104,9 @@ class _StreamPageState extends State<StreamPage> {
     await p.setString('rtmp_url', _rtmpUrl);
     await p.setString('audio_mode', _audioMode);
     await p.setString('orientation', _orientation);
+    await p.setBool('camera_enabled', _cameraEnabled);
+await p.setString('camera_facing', _cameraFacing);
+await p.setString('camera_mode', _cameraMode);
   }
 
   Future<dynamic> _handleCallback(MethodCall call) async {
@@ -122,6 +131,9 @@ class _StreamPageState extends State<StreamPage> {
     if (key.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: const Text('Stream Key enter karo!'), backgroundColor: red),
+        'cameraEnabled': _cameraEnabled,
+'cameraFacing': _cameraFacing,
+'cameraMode': _cameraMode,
       );
       return;
     }
@@ -316,7 +328,58 @@ class _StreamPageState extends State<StreamPage> {
                   (v) => _orientation = v),
             ]),
             const SizedBox(height: 24),
+const SizedBox(height: 16),
 
+// Camera Section
+_card(
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(children: [
+            Icon(Icons.videocam_rounded, color: _cameraEnabled ? red : subtext, size: 20),
+            const SizedBox(width: 8),
+            Text('Camera', style: TextStyle(color: text, fontSize: 14, fontWeight: FontWeight.w600)),
+          ]),
+          Switch(
+            value: _cameraEnabled,
+            onChanged: _isStreaming ? null : (v) => setState(() => _cameraEnabled = v),
+            activeColor: red,
+          ),
+        ],
+      ),
+
+      if (_cameraEnabled) ...[
+        const SizedBox(height: 12),
+
+        // Camera Mode
+        Text('Mode', style: TextStyle(color: subtext, fontSize: 12)),
+        const SizedBox(height: 6),
+        Row(children: [
+          _selectBtn('pip', _cameraMode, '🎮', 'PIP', 'Corner overlay',
+              (v) => _cameraMode = v),
+          const SizedBox(width: 10),
+          _selectBtn('split', _cameraMode, '📱', 'Split', '70/30 vertical',
+              (v) => _cameraMode = v),
+        ]),
+        const SizedBox(height: 12),
+
+        // Front/Back
+        Text('Camera', style: TextStyle(color: subtext, fontSize: 12)),
+        const SizedBox(height: 6),
+        Row(children: [
+          _selectBtn('back', _cameraFacing, '📷', 'Back', 'Main camera',
+              (v) => _cameraFacing = v),
+          const SizedBox(width: 10),
+          _selectBtn('front', _cameraFacing, '🤳', 'Front', 'Selfie camera',
+              (v) => _cameraFacing = v),
+        ]),
+      ],
+    ],
+  ),
+),
             // Start/Stop Button
             SizedBox(
               height: 54,
