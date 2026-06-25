@@ -28,7 +28,6 @@ import com.pedro.encoder.input.video.CameraHelper
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
 import com.pedro.library.rtmp.RtmpDisplay
-import com.pedro.encoder.input.gl.render.filters.BaseFilterRender
 import com.pedro.encoder.input.gl.render.filters.`object`.TextObjectFilterRender
 import com.pedro.encoder.input.gl.render.filters.`object`.ImageObjectFilterRender
 
@@ -166,11 +165,15 @@ class StreamService : Service(), ConnectChecker {
             val cam = Camera2Source(applicationContext)
             camera2Source = cam
 
-            // ✅ Camera start करणे आवश्यक आहे
-            cam.start(if (isFrontCamera) CameraHelper.Facing.FRONT else CameraHelper.Facing.BACK)
-
-            // ✅ Stream मध्ये overlay add करा
-            applyCameraAsOverlay(cam)
+            // Camera2Source ला GenericStream मध्ये video source म्हणून add करा
+            val gs = genericStream
+            if (gs != null) {
+                // GenericStream असेल तर video source बदला
+                cam.init(if (isFrontCamera) CameraHelper.Facing.FRONT else CameraHelper.Facing.BACK)
+                gs.changeVideoSource(cam)
+            }
+            // RtmpDisplay साठी camera overlay वेगळ्या प्रकारे handle होत नाही
+            // त्यामुळे फक्त GenericStream mode मध्ये camera PiP support आहे
 
             isCameraEnabled = true
             mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera ON") }
@@ -179,33 +182,24 @@ class StreamService : Service(), ConnectChecker {
         }
     }
 
-    private fun applyCameraAsOverlay(cam: Camera2Source) {
-        try {
-            val glInterface = genericStream?.getGlInterface()
-                ?: rtmpDisplay?.glInterface ?: return
-
-            val filterRender = cam as? BaseFilterRender ?: return
-
-            if (savedOrientation == "portrait") {
-                // Portrait: bottom 30% — camera खाली
-                filterRender.setScale(100f, 30f)
-                filterRender.setPosition(0f, 70f)
-            } else {
-                // Landscape: corner PiP — उजव्या वरच्या कोपऱ्यात
-                filterRender.setScale(25f, 25f)
-                filterRender.setPosition(75f, 0f)
-            }
-
-            glInterface.addFilter(filterRender)
-        } catch (_: Exception) {}
+    private fun applyCameraAsOverlay(@Suppress("UNUSED_PARAMETER") cam: Camera2Source) {
+        // Camera2Source हा BaseFilterRender नाही — तो VideoSource आहे.
+        // PiP camera साठी changeVideoSource() वापरणे आवश्यक आहे (enableCamera मध्ये केले आहे).
+        // हा method backward-compat साठी ठेवला आहे.
     }
 
 
     private fun disableCamera() {
         try {
             camera2Source?.let { cam ->
-                val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface
-                try { glInterface?.removeFilter(cam as? BaseFilterRender ?: return@let) } catch (_: Exception) {}
+                // GenericStream असेल तर ScreenSource वर परत जा
+                genericStream?.let { gs ->
+                    try {
+                        val screen = ScreenSource(applicationContext,
+                            getMediaProjection(savedResultCode, savedData!!))
+                        gs.changeVideoSource(screen)
+                    } catch (_: Exception) {}
+                }
                 cam.stop()
                 cam.release()
             }
