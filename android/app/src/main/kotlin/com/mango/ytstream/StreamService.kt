@@ -29,6 +29,10 @@ import com.pedro.library.generic.GenericStream
 import com.pedro.library.rtmp.RtmpDisplay
 import com.pedro.encoder.input.gl.render.filters.`object`.TextObjectFilterRender
 import com.pedro.encoder.input.gl.render.filters.`object`.ImageObjectFilterRender
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import com.pedro.encoder.input.sources.video.Camera2Source
+import com.pedro.encoder.input.sources.video.ScreenSource
 
 class StreamService : Service(), ConnectChecker {
 
@@ -49,6 +53,10 @@ class StreamService : Service(), ConnectChecker {
     private var savedFullUrl = ""
     private var savedOrientation = "landscape"
     private var currentVoiceMode = "normal"
+    private var cameraEnabled = false
+private var cameraFacing = "back"
+private var cameraMode = "pip"
+private var camera2Source: Camera2Source? = null
 
     private var textFilter: TextObjectFilterRender? = null
     private var imageFilter: ImageObjectFilterRender? = null
@@ -210,6 +218,9 @@ class StreamService : Service(), ConnectChecker {
         val audioMode = intent.getStringExtra("audioMode") ?: "internal"
         val orientation = intent.getStringExtra("orientation") ?: "landscape"
         currentVoiceMode = intent.getStringExtra("voiceMode") ?: "normal"
+        cameraEnabled = intent.getBooleanExtra("cameraEnabled", false)
+cameraFacing = intent.getStringExtra("cameraFacing") ?: "back"
+cameraMode = intent.getStringExtra("cameraMode") ?: "pip"
 
         lastOverlayText = intent.getStringExtra("overlayText") ?: ""
         lastOverlayImagePath = intent.getStringExtra("overlayImagePath") ?: ""
