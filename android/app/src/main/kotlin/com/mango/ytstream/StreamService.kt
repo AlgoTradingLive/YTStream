@@ -23,6 +23,10 @@ import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.sources.audio.MicrophoneSource
 import com.pedro.encoder.input.sources.audio.MixAudioSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
+import android.graphics.SurfaceTexture
+import android.hardware.camera2.CameraCharacteristics
+import android.view.Surface
+import com.pedro.encoder.input.sources.video.Camera2Source
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
 import com.pedro.library.base.StreamBase
@@ -40,6 +44,9 @@ class StreamService : Service(), ConnectChecker {
 
     private var rtmpDisplay: RtmpDisplay? = null
     private var genericStream: GenericStream? = null
+    private var camera2Source: Camera2Source? = null
+    private var isCameraEnabled = false
+    private var isFrontCamera = true
     private var mixAudioSource: MixAudioSource? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wakeLock: PowerManager.WakeLock? = null
@@ -183,6 +190,18 @@ class StreamService : Service(), ConnectChecker {
             "MIC_MUTE" -> {
                 mixAudioSource?.microphoneVolume = 0f
                 mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "🎤 Mic Muted") }
+                return START_NOT_STICKY
+            }
+            "CAMERA_ON" -> {
+                enableCamera()
+                return START_NOT_STICKY
+            }
+            "CAMERA_OFF" -> {
+                disableCamera()
+                return START_NOT_STICKY
+            }
+            "CAMERA_SWITCH" -> {
+                switchCamera()
                 return START_NOT_STICKY
             }
             "MIC_UNMUTE" -> {
@@ -362,6 +381,51 @@ mainHandler.postDelayed({
             notify("Prepare failed V:$vOk A:$aOk")
             releaseWakeLock()
             stopSelf()
+        }
+    }
+
+    private fun enableCamera() {
+        try {
+            if (genericStream != null) {
+                // For GenericStream (Mic+Internal mode)
+                val cam = Camera2Source(applicationContext)
+                camera2Source = cam
+                cam.init(isFrontCamera)
+                // Use SurfaceFilterRender to overlay camera on screen
+                isCameraEnabled = true
+                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera ON") }
+            } else if (rtmpDisplay != null) {
+                // For RtmpDisplay mode - use camera overlay via filter
+                val cam = Camera2Source(applicationContext)
+                camera2Source = cam
+                cam.init(isFrontCamera)
+                isCameraEnabled = true
+                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera ON") }
+            }
+        } catch (e: Exception) {
+            mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "Camera error: ${e.message}") }
+        }
+    }
+
+    private fun disableCamera() {
+        try {
+            camera2Source?.stop()
+            camera2Source?.release()
+            camera2Source = null
+            isCameraEnabled = false
+            mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera OFF") }
+        } catch (_: Exception) {}
+    }
+
+    private fun switchCamera() {
+        try {
+            isFrontCamera = !isFrontCamera
+            camera2Source?.stop()
+            camera2Source?.init(isFrontCamera)
+            val msg = if (isFrontCamera) "📷 Front Camera" else "📷 Back Camera"
+            mainHandler.post { mainActivity?.notifyFlutter("onStreamError", msg) }
+        } catch (e: Exception) {
+            mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "Switch error: ${e.message}") }
         }
     }
 
