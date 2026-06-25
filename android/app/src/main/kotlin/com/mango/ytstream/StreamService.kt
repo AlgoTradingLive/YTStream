@@ -302,7 +302,7 @@ class StreamService : Service(), ConnectChecker {
             getGlInterface().setForceRender(true)
         }
 
-        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 30, 2, rotation)
+        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000)
         val aOk = genericStream!!.prepareAudio(
             sampleRate = 44100,
             isStereo = true,
@@ -337,6 +337,7 @@ mainHandler.postDelayed({
     ) {
         rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
         rtmpDisplay!!.glInterface.setForceRender(true)
+        rtmpDisplay!!.setVideoRotation(rotation)
         rtmpDisplay!!.setIntentResult(rc, d)
 
    
