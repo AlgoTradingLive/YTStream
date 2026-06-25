@@ -194,34 +194,15 @@ class StreamService : Service(), ConnectChecker {
         }
     }
 
-    private fun applyCameraAsOverlay(cam: Camera2Source) {
-    try {
-        val glInterface = genericStream?.getGlInterface() 
-            ?: rtmpDisplay?.glInterface ?: return
-
-        val isPortrait = savedOrientation == "portrait"
-        val camX = if (isPortrait) 0f else 75f
-        val camY = if (isPortrait) 70f else 0f
-        val camW = if (isPortrait) 100f else 25f
-        val camH = if (isPortrait) 30f else 25f
-
-        // ❌ जुने (काम करत नाही):
-        // cam.setScale(camW, camH)
-        // cam.setPosition(camX, camY)
-
-        // ✅ नवीन - filter add करताना position/scale द्या:
-        val filterRender = cam as? BaseFilterRender ?: run {
-            glInterface.addFilter(cam as BaseFilterRender)
-            return
-        }
-        
-        filterRender.setScale(camW, camH)
-        filterRender.setPosition(camX, camY)
-        glInterface.addFilter(filterRender)
-
-    } catch (_: Exception) {}
     
-    }
+private fun applyCameraAsOverlay(cam: Camera2Source) {
+    try {
+        val glInterface = genericStream?.getGlInterface()
+            ?: rtmpDisplay?.glInterface ?: return
+        glInterface.addFilter(cam as BaseFilterRender)
+    } catch (_: Exception) {}
+}
+
 
     private fun disableCamera() {
         try {
