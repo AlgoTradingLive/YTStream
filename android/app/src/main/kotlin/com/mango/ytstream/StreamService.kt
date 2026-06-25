@@ -283,7 +283,7 @@ class StreamService : Service(), ConnectChecker {
 
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun startMixedAudio(
-        url: String, w: Int, h: Int, rc: Int, d: Intent,
+        url: String, w: Int, h: Int, rotation: Int, rc: Int, d: Intent,
         overlayText: String, overlayImagePath: String,
         textX: Float, textY: Float, imageX: Float, imageY: Float
     ) {
@@ -326,12 +326,12 @@ mainHandler.postDelayed({
             genericStream = null
             mixAudioSource = null
             mp.stop()
-            startInternalOnly(url, w, h, savedResultCode, savedData!!, overlayText, overlayImagePath, textX, textY, imageX, imageY)
+            startInternalOnly(url, w, h, rotation, savedResultCode, savedData!!, overlayText, overlayImagePath, textX, textY, imageX, imageY)
         }
     }
 
     private fun startInternalOnly(
-        url: String, w: Int, h: Int, rc: Int, d: Intent,
+        url: String, w: Int, h: Int, rotation: Int, rc: Int, d: Intent,
         overlayText: String, overlayImagePath: String,
         textX: Float, textY: Float, imageX: Float, imageY: Float
     ) {
