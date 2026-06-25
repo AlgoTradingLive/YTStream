@@ -304,13 +304,8 @@ class StreamService : Service(), ConnectChecker {
         }
 
         val vOk = (genericStream as StreamBase).prepareVideo(w, h, 2_000_000, 30, 1, rotation)
-        val aOk = genericStream!!.prepareAudio(
-            sampleRate = 44100,
-            isStereo = true,
-            bitrate = 128_000,
-            echoCanceler = true,
-            noiseSuppressor = true
-        )
+        val aOk = genericStream!!.prepareAudio(44100, true, 128_000,
+            true, true)
 
         if (vOk && aOk) {
             val mix = MixAudioSource(mp)
@@ -344,13 +339,7 @@ mainHandler.postDelayed({
    
 
 
-val vOk = rtmpDisplay!!.prepareVideo(
-    width = w,
-    height = h,
-    fps = 30,
-    bitrate = 2_000_000,
-    iFrameInterval = 2  
-)
+val vOk = rtmpDisplay!!.prepareVideo(w, h, 30, 2_000_000, rotation, 320, -1, -1, 1)
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true),
