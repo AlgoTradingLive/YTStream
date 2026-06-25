@@ -131,9 +131,7 @@ await p.setString('camera_mode', _cameraMode);
     if (key.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: const Text('Stream Key enter karo!'), backgroundColor: red),
-        'cameraEnabled': _cameraEnabled,
-'cameraFacing': _cameraFacing,
-'cameraMode': _cameraMode,
+        
       );
       return;
     }
@@ -143,6 +141,9 @@ await p.setString('camera_mode', _cameraMode);
       await platform.invokeMethod('startStream', {
         'rtmpUrl': _rtmpUrl, 'streamKey': key,
         'audioMode': _audioMode, 'orientation': _orientation,
+'cameraEnabled': _cameraEnabled,
+'cameraFacing': _cameraFacing,
+'cameraMode': _cameraMode,
       });
     } on PlatformException catch (e) {
       setState(() { _isLoading = false; _status = e.message ?? 'Error'; });
