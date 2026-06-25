@@ -8,6 +8,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.media.projection.MediaProjection
@@ -28,7 +29,6 @@ import com.pedro.library.generic.GenericStream
 import com.pedro.library.rtmp.RtmpDisplay
 import com.pedro.encoder.input.gl.render.filters.`object`.TextObjectFilterRender
 import com.pedro.encoder.input.gl.render.filters.`object`.ImageObjectFilterRender
-import com.pedro.encoder.input.gl.render.TranslateTo
 
 class StreamService : Service(), ConnectChecker {
 
@@ -105,20 +105,6 @@ class StreamService : Service(), ConnectChecker {
         // Pedro 2.7.3 मध्ये pitch effect नाही
     }
 
-    private fun getTranslateTo(x: Float, y: Float): TranslateTo {
-        return when {
-            x < 0.33f && y < 0.33f -> TranslateTo.TOP_LEFT
-            x in 0.33f..0.66f && y < 0.33f -> TranslateTo.TOP
-            x > 0.66f && y < 0.33f -> TranslateTo.TOP_RIGHT
-            x < 0.33f && y in 0.33f..0.66f -> TranslateTo.LEFT
-            x in 0.33f..0.66f && y in 0.33f..0.66f -> TranslateTo.CENTER
-            x > 0.66f && y in 0.33f..0.66f -> TranslateTo.RIGHT
-            x < 0.33f && y > 0.66f -> TranslateTo.BOTTOM_LEFT
-            x in 0.33f..0.66f && y > 0.66f -> TranslateTo.BOTTOM
-            else -> TranslateTo.BOTTOM_RIGHT
-        }
-    }
-
     private fun applyOverlay(
         overlayText: String, overlayImagePath: String,
         textX: Float, textY: Float, imageX: Float, imageY: Float
@@ -137,19 +123,25 @@ class StreamService : Service(), ConnectChecker {
 
             if (overlayText.isNotEmpty()) {
                 val tf = TextObjectFilterRender()
-                tf.setDefaultScale(0.35f, 0.1f)
-                tf.setPosition(getTranslateTo(textX, textY))
+                // Pedro 2.7.3 — setDefaultScale Int parameters
+                tf.setDefaultScale(35, 10)
+                // position — screen % मध्ये
+                tf.setPosition((textX * 100).toInt(), (textY * 100).toInt())
                 tf.setText(overlayText, 48f, Color.WHITE)
                 glInterface.addFilter(tf)
                 textFilter = tf
             }
 
             if (overlayImagePath.isNotEmpty()) {
-                val bitmap = BitmapFactory.decodeFile(overlayImagePath)
+                val opts = BitmapFactory.Options().apply {
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                    inSampleSize = 1
+                }
+                val bitmap = BitmapFactory.decodeFile(overlayImagePath, opts)
                 if (bitmap != null) {
                     val sf = ImageObjectFilterRender()
-                    sf.setDefaultScale(0.2f, 0.2f)
-                    sf.setPosition(getTranslateTo(imageX, imageY))
+                    sf.setDefaultScale(20, 20)
+                    sf.setPosition((imageX * 100).toInt(), (imageY * 100).toInt())
                     sf.setImage(bitmap)
                     glInterface.addFilter(sf)
                     imageFilter = sf
