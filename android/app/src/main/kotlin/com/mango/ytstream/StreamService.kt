@@ -85,7 +85,45 @@ private var camera2Source: Camera2Source? = null
             acquire(8 * 60 * 60 * 1000L)
         }
     }
+private fun setupCamera() {
+    if (!cameraEnabled) return
+    try {
+        val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return
 
+        // Camera2Source initialize
+        camera2Source = Camera2Source(applicationContext)
+
+        val facing = if (cameraFacing == "front")
+            CameraCharacteristics.LENS_FACING_FRONT
+        else
+            CameraCharacteristics.LENS_FACING_BACK
+
+        camera2Source!!.init(facing)
+
+        when (cameraMode) {
+            "pip" -> {
+                // Corner मध्ये — 25% size, bottom-right
+                val filter = com.pedro.encoder.input.gl.render.filters.`object`.SurfaceFilterRender()
+                camera2Source!!.setFilter(filter)
+                filter.setScale(25f, 25f)
+                filter.setPosition(72f, 72f)
+                glInterface.addFilter(filter)
+                camera2Source!!.start(filter)
+            }
+            "split" -> {
+                // 70/30 split — camera खाली 30%
+                val filter = com.pedro.encoder.input.gl.render.filters.`object`.SurfaceFilterRender()
+                camera2Source!!.setFilter(filter)
+                filter.setScale(100f, 30f)
+                filter.setPosition(0f, 70f)
+                glInterface.addFilter(filter)
+                camera2Source!!.start(filter)
+            }
+        }
+    } catch (e: Exception) {
+        notify("Camera error: ${e.message}")
+    }
+}
     private fun releaseWakeLock() {
         try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
         wakeLock = null
