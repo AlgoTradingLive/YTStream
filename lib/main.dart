@@ -206,11 +206,7 @@ class _StreamPageState extends State<StreamPage> {
         elevation: 0,
         titleSpacing: 16,
         title: Row(children: [
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(color: red, borderRadius: BorderRadius.circular(8)),
-            child: const Center(child: Text('▶', style: TextStyle(color: Colors.white, fontSize: 16))),
-          ),
+          Image.asset('assets/logo.png', width: 38, height: 38),
           const SizedBox(width: 8),
           RichText(text: TextSpan(children: [
             TextSpan(text: 'Yt', style: TextStyle(color: red, fontSize: 20, fontWeight: FontWeight.bold)),
