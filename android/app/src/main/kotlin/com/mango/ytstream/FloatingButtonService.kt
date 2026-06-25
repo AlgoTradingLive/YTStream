@@ -53,6 +53,7 @@ class FloatingButtonService : Service() {
         pauseBtn = makeBtn("⏸", Color.argb(255, 200, 120, 0))
         muteBtn = makeBtn("🔊", Color.argb(255, 0, 100, 180))
         micBtn = makeBtn("🎤", Color.argb(255, 0, 130, 80))
+        cameraBtn = makeBtn("📷", Color.argb(255, 100, 0, 150))
         // Camera toggle
 cameraBtn.setOnClickListener {
     send("CAMERA_TOGGLE")
@@ -71,6 +72,8 @@ cameraBtn.setOnClickListener {
         container.addView(camBtn)
         container.addView(spacer())
         container.addView(stopBtn)
+        container.addView(spacer())
+container.addView(cameraBtn)
 
         floatingView = container
 
