@@ -203,13 +203,9 @@ private fun setupCamera() {
                 return START_NOT_STICKY
             }
             "CAMERA_TOGGLE" -> {
-    if (camera2Source?.isRunning == true) {
-        camera2Source?.stop()
-        mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera OFF") }
-    } else {
-        setupCamera()
-        mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
-    }
+    try { camera2Source?.stop() } catch (_: Exception) {}
+    camera2Source = null
+    mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera OFF") }
     return START_NOT_STICKY
 }
 "CAMERA_SWITCH" -> {
