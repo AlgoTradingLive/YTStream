@@ -30,9 +30,9 @@ import com.pedro.library.rtmp.RtmpDisplay
 import com.pedro.encoder.input.gl.render.filters.`object`.TextObjectFilterRender
 import com.pedro.encoder.input.gl.render.filters.`object`.ImageObjectFilterRender
 import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraManager
+
 import com.pedro.encoder.input.sources.video.Camera2Source
-import com.pedro.encoder.input.sources.video.ScreenSource
+
 
 class StreamService : Service(), ConnectChecker {
 
@@ -90,34 +90,30 @@ private fun setupCamera() {
     try {
         val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return
 
-        // Camera2Source initialize
+        // Camera2Source Pedro 2.7.3 मध्ये असा वापरतो
+        val useFront = cameraFacing == "front"
+
         camera2Source = Camera2Source(applicationContext)
-
-        val facing = if (cameraFacing == "front")
-            CameraCharacteristics.LENS_FACING_FRONT
-        else
-            CameraCharacteristics.LENS_FACING_BACK
-
-        camera2Source!!.init(facing)
 
         when (cameraMode) {
             "pip" -> {
-                // Corner मध्ये — 25% size, bottom-right
-                val filter = com.pedro.encoder.input.gl.render.filters.`object`.SurfaceFilterRender()
-                camera2Source!!.setFilter(filter)
-                filter.setScale(25f, 25f)
-                filter.setPosition(72f, 72f)
+                // PIP — corner मध्ये image overlay सारखं
+                val filter = ImageObjectFilterRender()
+                filter.setScale(28f, 28f)
+                filter.setPosition(70f, 70f)
                 glInterface.addFilter(filter)
-                camera2Source!!.start(filter)
+                camera2Source!!.start(glInterface, useFront)
             }
             "split" -> {
-                // 70/30 split — camera खाली 30%
-                val filter = com.pedro.encoder.input.gl.render.filters.`object`.SurfaceFilterRender()
-                camera2Source!!.setFilter(filter)
+                // Split — खाली 30%
+                val filter = ImageObjectFilterRender()
                 filter.setScale(100f, 30f)
                 filter.setPosition(0f, 70f)
                 glInterface.addFilter(filter)
-                camera2Source!!.start(filter)
+                camera2Source!!.start(glInterface, useFront)
+            }
+            else -> {
+                camera2Source!!.start(glInterface, useFront)
             }
         }
     } catch (e: Exception) {
@@ -249,8 +245,9 @@ private fun setupCamera() {
 }
 "CAMERA_SWITCH" -> {
     cameraFacing = if (cameraFacing == "back") "front" else "back"
-    camera2Source?.stop()
-    setupCamera()
+    try { camera2Source?.stop() } catch (_: Exception) {}
+    camera2Source = null
+    mainHandler.postDelayed({ setupCamera() }, 300)
     return START_NOT_STICKY
 }
             "UPDATE_OVERLAY" -> {
