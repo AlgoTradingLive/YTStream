@@ -85,19 +85,28 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun checkPermissionsAndStart() {
-        if (pendingAudioMode == "mic_internal") {
-            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(android.Manifest.permission.RECORD_AUDIO),
-                    REQUEST_MIC_PERMISSION
-                )
-                return
-            }
+    val perms = mutableListOf<String>()
+    
+    if (pendingAudioMode == "mic_internal") {
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            perms.add(android.Manifest.permission.RECORD_AUDIO)
         }
-        checkOverlayAndStart()
     }
+    
+    if (pendingCameraEnabled == true) {
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED) {
+            perms.add(android.Manifest.permission.CAMERA)
+        }
+    }
+    
+    if (perms.isNotEmpty()) {
+        ActivityCompat.requestPermissions(this, perms.toTypedArray(), REQUEST_MIC_PERMISSION)
+        return
+    }
+    checkOverlayAndStart()
+}
 
     private fun checkOverlayAndStart() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
