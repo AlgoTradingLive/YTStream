@@ -237,6 +237,22 @@ private fun setupCamera() {
                 applyVoiceEffect(mode)
                 return START_NOT_STICKY
             }
+            "CAMERA_TOGGLE" -> {
+    if (camera2Source?.isRunning == true) {
+        camera2Source?.stop()
+        mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera OFF") }
+    } else {
+        setupCamera()
+        mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
+    }
+    return START_NOT_STICKY
+}
+"CAMERA_SWITCH" -> {
+    cameraFacing = if (cameraFacing == "back") "front" else "back"
+    camera2Source?.stop()
+    setupCamera()
+    return START_NOT_STICKY
+}
             "UPDATE_OVERLAY" -> {
                 val text = intent.getStringExtra("overlayText") ?: ""
                 val imagePath = intent.getStringExtra("overlayImagePath") ?: ""
@@ -364,6 +380,7 @@ cameraMode = intent.getStringExtra("cameraMode") ?: "pip"
 
         if (vOk && aOk) {
             rtmpDisplay!!.startStream(url)
+            mainHandler.postDelayed({ setupCamera() }, 800)
             mainHandler.postDelayed({
                 applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY)
             }, 500)
@@ -400,6 +417,7 @@ cameraMode = intent.getStringExtra("cameraMode") ?: "pip"
     private fun stopStreaming() {
         try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
         try { if (genericStream?.isStreaming == true) genericStream?.stopStream() } catch (_: Exception) {}
+        try { camera2Source?.stop() } catch (_: Exception) {}
         releaseWakeLock(); stopForeground(true); stopSelf()
         mainHandler.post { mainActivity?.notifyFlutter("onStreamStopped") }
     }
