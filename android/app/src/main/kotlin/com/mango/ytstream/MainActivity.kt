@@ -62,6 +62,9 @@ class MainActivity : FlutterActivity() {
                         putExtra("textY", (call.argument("textY") as? Double)?.toFloat() ?: 0.05f)
                         putExtra("imageX", (call.argument("imageX") as? Double)?.toFloat() ?: 0.7f)
                         putExtra("imageY", (call.argument("imageY") as? Double)?.toFloat() ?: 0.05f)
+                        putExtra("cameraEnabled", call.argument("cameraEnabled") ?: false)
+putExtra("cameraFacing", call.argument("cameraFacing") ?: "back")
+putExtra("cameraMode", call.argument("cameraMode") ?: "pip")
                     }
                     startService(i)
                     result.success(null)
