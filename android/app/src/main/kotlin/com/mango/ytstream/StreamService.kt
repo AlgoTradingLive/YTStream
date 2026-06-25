@@ -141,7 +141,7 @@ class StreamService : Service(), ConnectChecker {
                 if (bitmap != null) {
                     val sf = ImageObjectFilterRender()
                     sf.setScale(20f, 20f)
-                    sf.setPosition((imageX * 100f, imageY * 100f)
+                    sf.setPosition(imageX * 100f, imageY * 100f)
                     sf.setImage(bitmap)
                     glInterface.addFilter(sf)
                     imageFilter = sf
