@@ -24,7 +24,6 @@ import com.pedro.encoder.input.sources.audio.MicrophoneSource
 import com.pedro.encoder.input.sources.audio.MixAudioSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
 import com.pedro.encoder.input.sources.video.Camera2Source
-import com.pedro.encoder.input.video.CameraHelper
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
 import com.pedro.library.rtmp.RtmpDisplay
@@ -168,11 +167,11 @@ class StreamService : Service(), ConnectChecker {
             // Camera2Source ला GenericStream मध्ये video source म्हणून add करा
             val gs = genericStream
             if (gs != null) {
-                // init(width, height, fps, rotation) — facing नंतर setCameraFacing ने
-                cam.init(640, 480, 30, 0)
-                val facing = if (isFrontCamera) CameraHelper.Facing.FRONT else CameraHelper.Facing.BACK
-                cam.setCameraFacing(facing)
+                // Pedro Wiki: changeVideoSource() केल्यावर library स्वतः camera start करते
+                // init() method नाही — facing साठी switchCamera() वापरा
                 gs.changeVideoSource(cam)
+                // Default front camera असेल, back हवा असेल तर switch करा
+                if (!isFrontCamera) cam.switchCamera()
             }
             // RtmpDisplay साठी camera overlay वेगळ्या प्रकारे handle होत नाही
             // त्यामुळे फक्त GenericStream mode मध्ये camera PiP support आहे
