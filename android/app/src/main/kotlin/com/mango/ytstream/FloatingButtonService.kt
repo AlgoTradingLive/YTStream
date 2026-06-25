@@ -52,6 +52,7 @@ class FloatingButtonService : Service() {
         pauseBtn = makeBtn("⏸", Color.argb(255, 200, 120, 0))
         muteBtn = makeBtn("🔊", Color.argb(255, 0, 100, 180))
         micBtn = makeBtn("🎤", Color.argb(255, 0, 130, 80))
+        val camBtn = makeBtn("📷", Color.argb(255, 80, 0, 150))
         val stopBtn = makeBtn("⏹", Color.argb(255, 200, 0, 0))
 
         container.addView(logoView)
@@ -61,6 +62,8 @@ class FloatingButtonService : Service() {
         container.addView(muteBtn)
         container.addView(spacer())
         container.addView(micBtn)
+        container.addView(spacer())
+        container.addView(camBtn)
         container.addView(spacer())
         container.addView(stopBtn)
 
@@ -156,6 +159,28 @@ class FloatingButtonService : Service() {
                 micBtn.text = "🎤"
                 setBtnColor(micBtn, Color.argb(255, 0, 130, 80))
             }
+        }
+
+        // Camera toggle
+        var isCamOn = false
+        camBtn.setOnClickListener {
+            if (!isCamOn) {
+                send("CAMERA_ON")
+                isCamOn = true
+                camBtn.text = "🎥"
+                setBtnColor(camBtn, Color.argb(255, 0, 100, 200))
+            } else {
+                send("CAMERA_OFF")
+                isCamOn = false
+                camBtn.text = "📷"
+                setBtnColor(camBtn, Color.argb(255, 80, 0, 150))
+            }
+        }
+
+        // Long press camera = switch front/back
+        camBtn.setOnLongClickListener {
+            send("CAMERA_SWITCH")
+            true
         }
 
         // Stop
