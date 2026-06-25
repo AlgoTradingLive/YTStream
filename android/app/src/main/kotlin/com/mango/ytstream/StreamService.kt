@@ -262,9 +262,9 @@ class StreamService : Service(), ConnectChecker {
         mainHandler.post {
             try {
                 if (audioMode == "mic_internal" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startMixedAudio(savedFullUrl, vW, vH, resultCode, data, overlayText, overlayImagePath, textX, textY, imageX, imageY)
+                    startMixedAudio(savedFullUrl, vW, vH, rotation, resultCode, data, overlayText, overlayImagePath, textX, textY, imageX, imageY)
                 } else {
-                    startInternalOnly(savedFullUrl, vW, vH, resultCode, data, overlayText, overlayImagePath, textX, textY, imageX, imageY)
+                    startInternalOnly(savedFullUrl, vW, vH, rotation, resultCode, data, overlayText, overlayImagePath, textX, textY, imageX, imageY)
                 }
             } catch (e: Exception) {
                 notify("Error: ${e.message}")
@@ -297,7 +297,7 @@ class StreamService : Service(), ConnectChecker {
             getGlInterface().setForceRender(true)
         }
 
-        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000)
+        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 30, 2, rotation)
         val aOk = genericStream!!.prepareAudio(
             sampleRate = 44100,
             isStereo = true,
@@ -334,7 +334,7 @@ mainHandler.postDelayed({
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000)
+        val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000, 30, 2, rotation)
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true),
