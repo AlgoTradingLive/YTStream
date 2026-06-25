@@ -379,7 +379,7 @@ class StreamService : Service(), ConnectChecker {
             getGlInterface().setForceRender(true)
         }
 
-        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 30, 1, rotation)
+        val vOk = genericStream!!.prepareVideo(w, h, 30, 2_000_000, 2)
         val aOk = genericStream!!.prepareAudio(44100, true, 128_000, true, true)
 
         if (vOk && aOk) {
@@ -404,7 +404,7 @@ class StreamService : Service(), ConnectChecker {
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        val vOk = rtmpDisplay!!.prepareVideo(w, h, 30, 2_000_000, rotation, 320, -1, -1, 1)
+        val vOk = rtmpDisplay!!.prepareVideo(w, h, 30, 2_000_000, rotation, 2)
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true), Triple(128_000, 44100, false),
