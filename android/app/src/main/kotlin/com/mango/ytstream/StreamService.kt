@@ -256,8 +256,13 @@ class StreamService : Service(), ConnectChecker {
         acquireWakeLock()
 
         val isPortrait = orientation == "portrait"
+        val wm = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
+        val dm = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION") wm.defaultDisplay.getMetrics(dm)
+        val isScreenPortrait = dm.heightPixels > dm.widthPixels
         val vW = if (isPortrait) 720 else 1280
         val vH = if (isPortrait) 1280 else 720
+        val rotation = if (isPortrait) { if (isScreenPortrait) 0 else 90 } else { if (isScreenPortrait) 90 else 0 }
 
         mainHandler.post {
             try {
