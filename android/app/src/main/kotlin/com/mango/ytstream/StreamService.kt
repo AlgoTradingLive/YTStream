@@ -126,7 +126,7 @@ class StreamService : Service(), ConnectChecker {
                 // Pedro 2.7.3 — setDefaultScale Int parameters
                 tf.setScale(35f, 10f)
                 // position — screen % मध्ये
-                tf.setPosition((textX * 100f, textY * 100f)
+                tf.setPosition(textX * 100f, textY * 100f)
                 tf.setText(overlayText, 48f, Color.WHITE)
                 glInterface.addFilter(tf)
                 textFilter = tf
