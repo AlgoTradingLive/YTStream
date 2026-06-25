@@ -52,6 +52,10 @@ class FloatingButtonService : Service() {
         pauseBtn = makeBtn("⏸", Color.argb(255, 200, 120, 0))
         muteBtn = makeBtn("🔊", Color.argb(255, 0, 100, 180))
         micBtn = makeBtn("🎤", Color.argb(255, 0, 130, 80))
+        // Camera toggle
+cameraBtn.setOnClickListener {
+    send("CAMERA_TOGGLE")
+}
         val camBtn = makeBtn("📷", Color.argb(255, 80, 0, 150))
         val stopBtn = makeBtn("⏹", Color.argb(255, 200, 0, 0))
 
