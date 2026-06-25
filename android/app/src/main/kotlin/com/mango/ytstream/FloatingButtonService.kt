@@ -30,6 +30,7 @@ class FloatingButtonService : Service() {
     private lateinit var pauseBtn: TextView
     private lateinit var muteBtn: TextView
     private lateinit var micBtn: TextView
+    private lateinit var cameraBtn: TextView
 
     override fun onBind(intent: Intent?): IBinder? = null
 
