@@ -27,6 +27,7 @@ import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCharacteristics
 import android.view.Surface
 import com.pedro.encoder.input.sources.video.Camera2Source
+import com.pedro.encoder.input.video.CameraHelper
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
 import com.pedro.library.base.StreamBase
@@ -386,22 +387,18 @@ mainHandler.postDelayed({
 
     private fun enableCamera() {
         try {
+            val cam = Camera2Source(applicationContext)
+            cam.facing = if (isFrontCamera) CameraHelper.Facing.FRONT else CameraHelper.Facing.BACK
+            camera2Source = cam
+
             if (genericStream != null) {
-                // For GenericStream (Mic+Internal mode)
-                val cam = Camera2Source(applicationContext)
-                camera2Source = cam
-                cam.init(isFrontCamera)
-                // Use SurfaceFilterRender to overlay camera on screen
-                isCameraEnabled = true
-                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera ON") }
+                genericStream!!.changeVideoSource(cam)
             } else if (rtmpDisplay != null) {
-                // For RtmpDisplay mode - use camera overlay via filter
-                val cam = Camera2Source(applicationContext)
-                camera2Source = cam
-                cam.init(isFrontCamera)
-                isCameraEnabled = true
-                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera ON") }
+                // RtmpDisplay doesn't support changeVideoSource directly
+                // Camera will be handled via overlay filter
             }
+            isCameraEnabled = true
+            mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera ON") }
         } catch (e: Exception) {
             mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "Camera error: ${e.message}") }
         }
@@ -420,8 +417,9 @@ mainHandler.postDelayed({
     private fun switchCamera() {
         try {
             isFrontCamera = !isFrontCamera
+            camera2Source?.facing = if (isFrontCamera) CameraHelper.Facing.FRONT else CameraHelper.Facing.BACK
             camera2Source?.stop()
-            camera2Source?.init(isFrontCamera)
+            camera2Source?.start(camera2Source!!.surfaceTexture ?: return)
             val msg = if (isFrontCamera) "📷 Front Camera" else "📷 Back Camera"
             mainHandler.post { mainActivity?.notifyFlutter("onStreamError", msg) }
         } catch (e: Exception) {
