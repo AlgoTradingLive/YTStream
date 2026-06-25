@@ -161,31 +161,16 @@ class StreamService : Service(), ConnectChecker {
         }
     }
 
-    // Camera — Pedro 2.7.3 मध्ये facing private आहे
-    // त्यामुळे नवीन Camera2Source object बनवतो facing सकट
     private fun enableCamera() {
         try {
-            // facing parameter constructor मध्ये नाही Pedro 2.7.3 मध्ये
-            // CameraHelper.Facing वापरून switchCamera() ने switch करतो
             val cam = Camera2Source(applicationContext)
             camera2Source = cam
 
-            if (genericStream != null) {
-                // Portrait — split layout साठी camera PiP position वर
-                val savedOri = savedOrientation
-                if (savedOri == "portrait") {
-                    // Camera bottom 30% मध्ये — portrait split
-                    applyCameraAsOverlay(cam)
-                } else {
-                    // Landscape — corner PiP
-                    applyCameraAsOverlay(cam)
-                }
-            }
+            // ✅ Camera start करणे आवश्यक आहे
+            cam.start(if (isFrontCamera) CameraHelper.Facing.FRONT else CameraHelper.Facing.BACK)
 
-            // Front/Back — switch method वापरतो
-            if (!isFrontCamera) {
-                cam.switchCamera()
-            }
+            // ✅ Stream मध्ये overlay add करा
+            applyCameraAsOverlay(cam)
 
             isCameraEnabled = true
             mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera ON") }
@@ -194,21 +179,33 @@ class StreamService : Service(), ConnectChecker {
         }
     }
 
-    
-private fun applyCameraAsOverlay(cam: Camera2Source) {
-    try {
-        val glInterface = genericStream?.getGlInterface()
-            ?: rtmpDisplay?.glInterface ?: return
-        glInterface.addFilter(cam as BaseFilterRender)
-    } catch (_: Exception) {}
-}
+    private fun applyCameraAsOverlay(cam: Camera2Source) {
+        try {
+            val glInterface = genericStream?.getGlInterface()
+                ?: rtmpDisplay?.glInterface ?: return
+
+            val filterRender = cam as? BaseFilterRender ?: return
+
+            if (savedOrientation == "portrait") {
+                // Portrait: bottom 30% — camera खाली
+                filterRender.setScale(100f, 30f)
+                filterRender.setPosition(0f, 70f)
+            } else {
+                // Landscape: corner PiP — उजव्या वरच्या कोपऱ्यात
+                filterRender.setScale(25f, 25f)
+                filterRender.setPosition(75f, 0f)
+            }
+
+            glInterface.addFilter(filterRender)
+        } catch (_: Exception) {}
+    }
 
 
     private fun disableCamera() {
         try {
             camera2Source?.let { cam ->
                 val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface
-                try { glInterface?.removeFilter(cam as? com.pedro.encoder.input.gl.render.filters.BaseFilterRender ?: return@let) } catch (_: Exception) {}
+                try { glInterface?.removeFilter(cam as? BaseFilterRender ?: return@let) } catch (_: Exception) {}
                 cam.stop()
                 cam.release()
             }
