@@ -126,7 +126,7 @@ class StreamService : Service(), ConnectChecker {
                 // Pedro 2.7.3 — setDefaultScale Int parameters
                 tf.setScale(35f, 10f)
                 // position — screen % मध्ये
-                tf.setPosition((textX * 100).toInt(), (textY * 100).toInt())
+                tf.setPosition((textX * 100f, textY * 100f)
                 tf.setText(overlayText, 48f, Color.WHITE)
                 glInterface.addFilter(tf)
                 textFilter = tf
@@ -141,7 +141,7 @@ class StreamService : Service(), ConnectChecker {
                 if (bitmap != null) {
                     val sf = ImageObjectFilterRender()
                     sf.setScale(20f, 20f)
-                    sf.setPosition((imageX * 100).toInt(), (imageY * 100).toInt())
+                    sf.setPosition((imageX * 100f, imageY * 100f)
                     sf.setImage(bitmap)
                     glInterface.addFilter(sf)
                     imageFilter = sf
