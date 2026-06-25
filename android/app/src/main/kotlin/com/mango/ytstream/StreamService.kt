@@ -86,39 +86,8 @@ private var camera2Source: Camera2Source? = null
         }
     }
 private fun setupCamera() {
-    if (!cameraEnabled) return
-    try {
-        val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return
-
-        // Camera2Source Pedro 2.7.3 मध्ये असा वापरतो
-        val useFront = cameraFacing == "front"
-
-        camera2Source = Camera2Source(applicationContext)
-
-        when (cameraMode) {
-            "pip" -> {
-                // PIP — corner मध्ये image overlay सारखं
-                val filter = ImageObjectFilterRender()
-                filter.setScale(28f, 28f)
-                filter.setPosition(70f, 70f)
-                glInterface.addFilter(filter)
-                camera2Source!!.start(glInterface, useFront)
-            }
-            "split" -> {
-                // Split — खाली 30%
-                val filter = ImageObjectFilterRender()
-                filter.setScale(100f, 30f)
-                filter.setPosition(0f, 70f)
-                glInterface.addFilter(filter)
-                camera2Source!!.start(glInterface, useFront)
-            }
-            else -> {
-                camera2Source!!.start(glInterface, useFront)
-            }
-        }
-    } catch (e: Exception) {
-        notify("Camera error: ${e.message}")
-    }
+    // Camera feature coming soon
+    // Pedro 2.7.3 मध्ये Camera2Source API different आहे
 }
     private fun releaseWakeLock() {
         try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
