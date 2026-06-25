@@ -124,9 +124,9 @@ class StreamService : Service(), ConnectChecker {
             if (overlayText.isNotEmpty()) {
                 val tf = TextObjectFilterRender()
                 // Pedro 2.7.3 — setDefaultScale Int parameters
-                tf.setDefaultScale(35, 10)
+                tf.setDefaultScale(35f, 10f)
                 // position — screen % मध्ये
-                tf.setPosition((textX * 100).toInt(), (textY * 100).toInt())
+                tf.setPosition(textX * 100f, textY * 100f)
                 tf.setText(overlayText, 48f, Color.WHITE)
                 glInterface.addFilter(tf)
                 textFilter = tf
@@ -140,8 +140,8 @@ class StreamService : Service(), ConnectChecker {
                 val bitmap = BitmapFactory.decodeFile(overlayImagePath, opts)
                 if (bitmap != null) {
                     val sf = ImageObjectFilterRender()
-                    sf.setDefaultScale(20, 20)
-                    sf.setPosition((imageX * 100).toInt(), (imageY * 100).toInt())
+                    sf.setDefaultScale(20f, 20f)
+                    sf.setPosition(imageX * 100f, imageY * 100f)
                     sf.setImage(bitmap)
                     glInterface.addFilter(sf)
                     imageFilter = sf
