@@ -25,6 +25,7 @@ import com.pedro.encoder.input.sources.audio.MixAudioSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
+import com.pedro.library.base.StreamBase
 import com.pedro.library.rtmp.RtmpDisplay
 import com.pedro.encoder.input.gl.render.filters.`object`.TextObjectFilterRender
 import com.pedro.encoder.input.gl.render.filters.`object`.ImageObjectFilterRender
@@ -302,7 +303,7 @@ class StreamService : Service(), ConnectChecker {
             getGlInterface().setForceRender(true)
         }
 
-        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 30, 1, rotation)
+        val vOk = (genericStream as StreamBase).prepareVideo(w, h, 2_000_000, 30, 1, rotation)
         val aOk = genericStream!!.prepareAudio(
             sampleRate = 44100,
             isStereo = true,
