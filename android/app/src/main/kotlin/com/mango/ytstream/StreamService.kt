@@ -333,7 +333,7 @@ mainHandler.postDelayed({
     ) {
         rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
         rtmpDisplay!!.glInterface.setForceRender(true)
-        rtmpDisplay!!.setVideoRotation(rotation)
+        
         rtmpDisplay!!.setIntentResult(rc, d)
 
    
