@@ -8,10 +8,10 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraManager
-import android.hardware.camera2.CaptureRequest
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
+import java.util.concurrent.atomic.AtomicBoolean
 
 class CameraOverlay(
     private val context: Context,
@@ -22,11 +22,20 @@ class CameraOverlay(
     private var imageReader: ImageReader? = null
     private var cameraThread: HandlerThread? = null
     private var cameraHandler: Handler? = null
-    private var isRunning = false
+    private var processThread: HandlerThread? = null
+    private var processHandler: Handler? = null
+    private val isRunning = AtomicBoolean(false)
+    private val isProcessing = AtomicBoolean(false)
 
     fun start(useFront: Boolean) {
+        if (isRunning.get()) stop()
+
         cameraThread = HandlerThread("CameraThread").also { it.start() }
         cameraHandler = Handler(cameraThread!!.looper)
+
+        // ✅ वेगळा thread — JPEG decode साठी
+        processThread = HandlerThread("CameraProcessThread").also { it.start() }
+        processHandler = Handler(processThread!!.looper)
 
         val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
@@ -42,18 +51,37 @@ class CameraOverlay(
         }
         if (cameraId == null) return
 
-        imageReader = ImageReader.newInstance(480, 640, ImageFormat.JPEG, 2)
+        // ✅ फक्त 1 buffer — lag कमी होईल
+        imageReader = ImageReader.newInstance(320, 240, ImageFormat.JPEG, 1)
         imageReader!!.setOnImageAvailableListener({ reader ->
-            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
-            try {
-                val buffer = image.planes[0].buffer
-                val bytes = ByteArray(buffer.remaining())
-                buffer.get(bytes)
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                if (bitmap != null) onFrame(bitmap)
-            } catch (_: Exception) {
-            } finally {
-                image.close()
+            // ✅ आधीचं processing चालू असेल तर skip कर
+            if (isProcessing.getAndSet(true)) {
+                reader.acquireLatestImage()?.close()
+                return@setOnImageAvailableListener
+            }
+
+            val image = reader.acquireLatestImage()
+            if (image == null) {
+                isProcessing.set(false)
+                return@setOnImageAvailableListener
+            }
+
+            // ✅ Process thread वर decode करतो — camera thread block होणार नाही
+            processHandler?.post {
+                try {
+                    val buffer = image.planes[0].buffer
+                    val bytes = ByteArray(buffer.remaining())
+                    buffer.get(bytes)
+                    image.close()
+
+                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (bitmap != null && isRunning.get()) {
+                        onFrame(bitmap)
+                    }
+                } catch (_: Exception) {
+                } finally {
+                    isProcessing.set(false)
+                }
             }
         }, cameraHandler)
 
@@ -73,9 +101,11 @@ class CameraOverlay(
                                     addTarget(surface)
                                 }.build()
                                 session.setRepeatingRequest(request, null, cameraHandler)
-                                isRunning = true
+                                isRunning.set(true)
                             }
-                            override fun onConfigureFailed(session: CameraCaptureSession) {}
+                            override fun onConfigureFailed(session: CameraCaptureSession) {
+                                isRunning.set(false)
+                            }
                         },
                         cameraHandler
                     )
@@ -87,17 +117,20 @@ class CameraOverlay(
     }
 
     fun stop() {
-        isRunning = false
+        isRunning.set(false)
         try { captureSession?.close() } catch (_: Exception) {}
         try { cameraDevice?.close() } catch (_: Exception) {}
         try { imageReader?.close() } catch (_: Exception) {}
         cameraThread?.quitSafely()
+        processThread?.quitSafely()
         cameraDevice = null
         captureSession = null
         imageReader = null
         cameraThread = null
         cameraHandler = null
+        processThread = null
+        processHandler = null
     }
 
-    fun isActive() = isRunning
+    fun isActive() = isRunning.get()
 }
