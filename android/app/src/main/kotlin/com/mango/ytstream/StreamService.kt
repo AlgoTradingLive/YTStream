@@ -264,26 +264,27 @@ cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
                 return START_NOT_STICKY
             }
             "CAMERA_TOGGLE" -> {
-                mainHandler.post {
-                    if (cameraOverlay?.isActive() == true) {
-                       cameraEnabled = false
-                        stopCamera()
-                        mainActivity?.notifyFlutter("onStreamError", "📷 Camera OFF")
-                    } else {
-                        cameraEnabled = true
-                        setupCamera()
-                    }
-                }
-                return START_NOT_STICKY
+    mainHandler.post {
+        if (!cameraEnabled) {
+            cameraEnabled = true
+            setupCamera()
+        } else {
+            cameraEnabled = false
+            stopCamera()
+        }
+    }
+    return START_NOT_STICKY
             }
             "CAMERA_SWITCH" -> {
-                cameraFacing = if (cameraFacing == "back") "front" else "back"
-                mainHandler.post {
-                    stopCamera()
-                    mainHandler.postDelayed({ setupCamera() }, 500)
-                }
-                return START_NOT_STICKY
-            }
+    if (cameraEnabled) {  // ← फक्त camera on असेल तरच switch करा
+        cameraFacing = if (cameraFacing == "back") "front" else "back"
+        mainHandler.post {
+            stopCamera()
+            mainHandler.postDelayed({ setupCamera() }, 500)
+        }
+    }
+    return START_NOT_STICKY
+}
             "UPDATE_OVERLAY" -> {
                 val text = intent.getStringExtra("overlayText") ?: ""
                 val imagePath = intent.getStringExtra("overlayImagePath") ?: ""
@@ -370,7 +371,7 @@ cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
             getGlInterface().setForceRender(true)
         }
 
-        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000)
+        val vOk = genericStream!!.prepareVideo(w, h, 2_000_000, 30, 2)
         val aOk = genericStream!!.prepareAudio(
             sampleRate = 44100, isStereo = true, bitrate = 128_000,
             echoCanceler = true, noiseSuppressor = true
@@ -399,7 +400,7 @@ cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        val vOk = rtmpDisplay!!.prepareVideo(w, h, 2_000_000)
+        val vOk = rtmpDisplay!!.prepareVideo(w, h, 1_500_000, 30, 2)
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true), Triple(128_000, 44100, false),
