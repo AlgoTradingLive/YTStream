@@ -64,6 +64,9 @@ class StreamService : Service(), ConnectChecker {
     private var lastImageY = 0.05f
     private var lastFrameTime = 0L
 
+    // Single app share mode detect करायला
+    private var isSingleAppShare = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -106,8 +109,15 @@ class StreamService : Service(), ConnectChecker {
         return manager.getMediaProjection(resultCode, data)!!
     }
 
-    private fun applyVoiceEffect(mode: String) {
-        // Pedro 2.7.3 मध्ये pitch effect नाही
+    private fun applyVoiceEffect(mode: String) {}
+
+    private fun getCameraFrameInterval(): Long {
+        // Single app share किंवा split mode मध्ये जास्त throttle
+        return when {
+            isSingleAppShare -> 500L   // 2 fps — single app share heavy असतो
+            cameraMode == "split" -> 300L  // ~3 fps
+            else -> 150L               // ~6 fps — full screen PIP
+        }
     }
 
     private fun setupCamera() {
@@ -117,44 +127,62 @@ class StreamService : Service(), ConnectChecker {
                 return
             }
 
-            cameraFilter?.let {
-                try { glInterface.removeFilter(it) } catch (_: Exception) {}
+            // आधीचा filter properly काढा
+            val oldFilter = cameraFilter
+            if (oldFilter != null) {
+                try { glInterface.removeFilter(oldFilter) } catch (_: Exception) {}
+                cameraFilter = null
             }
-            cameraFilter = null
             cameraOverlay?.stop()
             cameraOverlay = null
+
+            // थोडा delay द्या — GL thread settle होऊ दे
+            Thread.sleep(100)
 
             val filter = ImageObjectFilterRender()
             when (cameraMode) {
                 "pip" -> {
-                    filter.setScale(28f, 28f)
-                    filter.setPosition(70f, 70f)
+                    filter.setScale(25f, 25f)   // थोडं लहान — GL load कमी
+                    filter.setPosition(72f, 70f)
                 }
                 "split" -> {
-                    filter.setScale(100f, 30f)
-                    filter.setPosition(0f, 70f)
+                    filter.setScale(98f, 28f)   // 100% नाही — boundary issue टाळा
+                    filter.setPosition(1f, 71f)
                 }
                 else -> {
-                    filter.setScale(28f, 28f)
-                    filter.setPosition(70f, 70f)
+                    filter.setScale(25f, 25f)
+                    filter.setPosition(72f, 70f)
                 }
             }
             glInterface.addFilter(filter)
             cameraFilter = filter
 
             val useFront = cameraFacing == "front"
+            val frameInterval = getCameraFrameInterval()
 
             cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
                 val now = System.currentTimeMillis()
-                if (now - lastFrameTime < 150) {
+                if (now - lastFrameTime < frameInterval) {
                     bitmap.recycle()
                     return@CameraOverlay
                 }
                 lastFrameTime = now
+
+                // cameraFilter null झाला असेल तर (stop झाला) recycle करा
+                val currentFilter = cameraFilter
+                if (currentFilter == null) {
+                    bitmap.recycle()
+                    return@CameraOverlay
+                }
+
                 mainHandler.post {
                     try {
-                        if (cameraFilter != null) filter.setImage(bitmap)
-                        else bitmap.recycle()
+                        // Double-check — mainHandler येईपर्यंत stop झाला असेल
+                        if (cameraFilter != null) {
+                            currentFilter.setImage(bitmap)
+                        } else {
+                            bitmap.recycle()
+                        }
                     } catch (_: Exception) {
                         bitmap.recycle()
                     }
@@ -171,12 +199,16 @@ class StreamService : Service(), ConnectChecker {
 
     private fun stopCamera() {
         val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface
-        cameraFilter?.let {
-            try { glInterface?.removeFilter(it) } catch (_: Exception) {}
+        val oldFilter = cameraFilter
+        cameraFilter = null  // आधी null करा — callback ला signal
+
+        if (oldFilter != null) {
+            try { glInterface?.removeFilter(oldFilter) } catch (_: Exception) {}
         }
-        cameraFilter = null
+
         cameraOverlay?.stop()
         cameraOverlay = null
+        notify("📷 Camera OFF")
     }
 
     private fun applyOverlay(
@@ -281,7 +313,7 @@ class StreamService : Service(), ConnectChecker {
                     cameraFacing = if (cameraFacing == "back") "front" else "back"
                     mainHandler.post {
                         stopCamera()
-                        mainHandler.postDelayed({ setupCamera() }, 500)
+                        mainHandler.postDelayed({ setupCamera() }, 800)
                     }
                 }
                 return START_NOT_STICKY
@@ -297,12 +329,10 @@ class StreamService : Service(), ConnectChecker {
                 return START_NOT_STICKY
             }
             else -> {
-                // action आहे पण unknown — ignore करा
                 if (intent?.action != null) return START_NOT_STICKY
             }
         }
 
-        // action = null म्हणजे नवीन stream start
         val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
         val data = intent?.getParcelableExtra<Intent>("data") ?: return START_NOT_STICKY
         val rtmpUrl = intent.getStringExtra("rtmpUrl") ?: return START_NOT_STICKY
@@ -313,6 +343,7 @@ class StreamService : Service(), ConnectChecker {
         cameraEnabled = intent.getBooleanExtra("cameraEnabled", false)
         cameraFacing = intent.getStringExtra("cameraFacing") ?: "back"
         cameraMode = intent.getStringExtra("cameraMode") ?: "pip"
+        isSingleAppShare = intent.getBooleanExtra("singleAppShare", false)
 
         lastOverlayText = intent.getStringExtra("overlayText") ?: ""
         lastOverlayImagePath = intent.getStringExtra("overlayImagePath") ?: ""
@@ -391,7 +422,7 @@ class StreamService : Service(), ConnectChecker {
             mainHandler.postDelayed({
                 applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY)
                 if (cameraEnabled) setupCamera()
-            }, 800)
+            }, 1000)
         } else {
             notify("Mic+Internal V:$vOk A:$aOk — switching to internal only")
             try { genericStream?.release() } catch (_: Exception) {}
@@ -422,7 +453,7 @@ class StreamService : Service(), ConnectChecker {
             mainHandler.postDelayed({
                 applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY)
                 if (cameraEnabled) setupCamera()
-            }, 800)
+            }, 1000)
         } else {
             notify("Prepare failed V:$vOk A:$aOk")
             releaseWakeLock(); stopSelf()
@@ -448,6 +479,7 @@ class StreamService : Service(), ConnectChecker {
     override fun onDestroy() {
         super.onDestroy()
         try { screenReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
+        stopCamera()
         try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
         try { if (genericStream?.isStreaming == true) genericStream?.stopStream() } catch (_: Exception) {}
         releaseWakeLock()
