@@ -224,94 +224,145 @@ cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
         } catch (_: Exception) {}
     }
 
-    // हे शोधा (line 225):
-override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    when (intent?.action) {
-
-// हे करा — action आहे पण stream नाही तर early return:
-override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     
-    // Control actions — stream चालू नसला तरी handle करा
-    val action = intent?.action
-    if (action != null) {
-        when (action) {
-            "STOP" -> { stopStreaming(); return START_NOT_STICKY }
-            "PAUSE" -> {
-                rtmpDisplay?.disableAudio()
-                genericStream?.changeAudioSource(SilenceAudioSource())
-                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "⏸ Paused") }
-                return START_NOT_STICKY
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+
+    when (intent?.action) {
+        "STOP" -> { stopStreaming(); return START_NOT_STICKY }
+        "PAUSE" -> {
+            rtmpDisplay?.disableAudio()
+            genericStream?.changeAudioSource(SilenceAudioSource())
+            mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "⏸ Paused") }
+            return START_NOT_STICKY
+        }
+        "RESUME" -> {
+            rtmpDisplay?.enableAudio()
+            mixAudioSource?.let { genericStream?.changeAudioSource(it) }
+            mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
+            return START_NOT_STICKY
+        }
+        "MUTE" -> {
+            rtmpDisplay?.disableAudio()
+            genericStream?.changeAudioSource(SilenceAudioSource())
+            mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "🔇 Muted") }
+            return START_NOT_STICKY
+        }
+        "UNMUTE" -> {
+            rtmpDisplay?.enableAudio()
+            mixAudioSource?.let { genericStream?.changeAudioSource(it) }
+            mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
+            return START_NOT_STICKY
+        }
+        "MIC_MUTE" -> {
+            (genericStream?.audioSource as? MixAudioSource)?.mute()
+            return START_NOT_STICKY
+        }
+        "MIC_UNMUTE" -> {
+            (genericStream?.audioSource as? MixAudioSource)?.unMute()
+            return START_NOT_STICKY
+        }
+        "SET_VOICE" -> {
+            val mode = intent.getStringExtra("voiceMode") ?: "normal"
+            currentVoiceMode = mode
+            applyVoiceEffect(mode)
+            return START_NOT_STICKY
+        }
+        "CAMERA_TOGGLE" -> {
+            mainHandler.post {
+                if (!cameraEnabled) {
+                    cameraEnabled = true
+                    setupCamera()
+                } else {
+                    cameraEnabled = false
+                    stopCamera()
+                }
             }
-            "RESUME" -> {
-                rtmpDisplay?.enableAudio()
-                mixAudioSource?.let { genericStream?.changeAudioSource(it) }
-                mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
-                return START_NOT_STICKY
-            }
-            "MUTE" -> {
-                rtmpDisplay?.disableAudio()
-                genericStream?.changeAudioSource(SilenceAudioSource())
-                mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "🔇 Muted") }
-                return START_NOT_STICKY
-            }
-            "UNMUTE" -> {
-                rtmpDisplay?.enableAudio()
-                mixAudioSource?.let { genericStream?.changeAudioSource(it) }
-                mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
-                return START_NOT_STICKY
-            }
-            "MIC_MUTE" -> {
-                (genericStream?.audioSource as? MixAudioSource)?.mute()
-                return START_NOT_STICKY
-            }
-            "MIC_UNMUTE" -> {
-                (genericStream?.audioSource as? MixAudioSource)?.unMute()
-                return START_NOT_STICKY
-            }
-            "SET_VOICE" -> {
-                val mode = intent.getStringExtra("voiceMode") ?: "normal"
-                currentVoiceMode = mode
-                applyVoiceEffect(mode)
-                return START_NOT_STICKY
-            }
-            "CAMERA_TOGGLE" -> {
+            return START_NOT_STICKY
+        }
+        "CAMERA_SWITCH" -> {
+            if (cameraEnabled) {
+                cameraFacing = if (cameraFacing == "back") "front" else "back"
                 mainHandler.post {
-                    if (!cameraEnabled) {
-                        cameraEnabled = true
-                        setupCamera()
-                    } else {
-                        cameraEnabled = false
-                        stopCamera()
-                    }
+                    stopCamera()
+                    mainHandler.postDelayed({ setupCamera() }, 500)
                 }
-                return START_NOT_STICKY
             }
-            "CAMERA_SWITCH" -> {
-                if (cameraEnabled) {
-                    cameraFacing = if (cameraFacing == "back") "front" else "back"
-                    mainHandler.post {
-                        stopCamera()
-                        mainHandler.postDelayed({ setupCamera() }, 500)
-                    }
-                }
-                return START_NOT_STICKY
+            return START_NOT_STICKY
+        }
+        "UPDATE_OVERLAY" -> {
+            val text = intent.getStringExtra("overlayText") ?: ""
+            val imagePath = intent.getStringExtra("overlayImagePath") ?: ""
+            val tx = intent.getFloatExtra("textX", 0.05f)
+            val ty = intent.getFloatExtra("textY", 0.05f)
+            val ix = intent.getFloatExtra("imageX", 0.7f)
+            val iy = intent.getFloatExtra("imageY", 0.05f)
+            mainHandler.post { applyOverlay(text, imagePath, tx, ty, ix, iy) }
+            return START_NOT_STICKY
+        }
+        else -> {}
+    }
+
+    // action null = नवीन stream start
+    if (intent?.action != null) return START_NOT_STICKY
+
+    val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
+    val data = intent?.getParcelableExtra<Intent>("data") ?: return START_NOT_STICKY
+    val rtmpUrl = intent.getStringExtra("rtmpUrl") ?: return START_NOT_STICKY
+    val streamKey = intent.getStringExtra("streamKey") ?: return START_NOT_STICKY
+    val audioMode = intent.getStringExtra("audioMode") ?: "internal"
+    val orientation = intent.getStringExtra("orientation") ?: "landscape"
+    currentVoiceMode = intent.getStringExtra("voiceMode") ?: "normal"
+    cameraEnabled = intent.getBooleanExtra("cameraEnabled", false)
+    cameraFacing = intent.getStringExtra("cameraFacing") ?: "back"
+    cameraMode = intent.getStringExtra("cameraMode") ?: "pip"
+
+    lastOverlayText = intent.getStringExtra("overlayText") ?: ""
+    lastOverlayImagePath = intent.getStringExtra("overlayImagePath") ?: ""
+    lastTextX = intent.getFloatExtra("textX", 0.05f)
+    lastTextY = intent.getFloatExtra("textY", 0.05f)
+    lastImageX = intent.getFloatExtra("imageX", 0.7f)
+    lastImageY = intent.getFloatExtra("imageY", 0.05f)
+
+    savedResultCode = resultCode
+    savedData = data
+    savedOrientation = orientation
+    savedFullUrl = "$rtmpUrl/$streamKey"
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val fgsType = if (audioMode == "mic_internal") {
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        } else {
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        }
+        startForeground(NOTIF_ID, buildNotification(), fgsType)
+    } else {
+        startForeground(NOTIF_ID, buildNotification())
+    }
+
+    acquireWakeLock()
+
+    val isPortrait = orientation == "portrait"
+    val vW = if (isPortrait) 720 else 1280
+    val vH = if (isPortrait) 1280 else 720
+
+    mainHandler.post {
+        try {
+            if (audioMode == "mic_internal" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startMixedAudio(savedFullUrl, vW, vH, resultCode, data)
+            } else {
+                startInternalOnly(savedFullUrl, vW, vH, resultCode, data)
             }
-            "UPDATE_OVERLAY" -> {
-                val text = intent.getStringExtra("overlayText") ?: ""
-                val imagePath = intent.getStringExtra("overlayImagePath") ?: ""
-                val tx = intent.getFloatExtra("textX", 0.05f)
-                val ty = intent.getFloatExtra("textY", 0.05f)
-                val ix = intent.getFloatExtra("imageX", 0.7f)
-                val iy = intent.getFloatExtra("imageY", 0.05f)
-                mainHandler.post { applyOverlay(text, imagePath, tx, ty, ix, iy) }
-                return START_NOT_STICKY
-            }
+        } catch (e: Exception) {
+            notify("Error: ${e.message}")
+            releaseWakeLock()
+            stopSelf()
         }
     }
 
-    // Stream start code खाली येतो (action = null म्हणजे नवीन stream)
-    val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
-    // ... बाकी सगळं तसंच
+    return START_NOT_STICKY
+    }
 
         val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
         val data = intent?.getParcelableExtra<Intent>("data") ?: return START_NOT_STICKY
