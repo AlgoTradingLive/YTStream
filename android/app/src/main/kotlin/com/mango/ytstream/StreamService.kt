@@ -146,10 +146,13 @@ class StreamService : Service(), ConnectChecker {
             // CameraOverlay start — प्रत्येक frame filter ला देतो
             val useFront = cameraFacing == "front"
             cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
-                // GL thread वर setImage call करायला हवं
-                try {
-                    filter.setImage(bitmap)
-                } catch (_: Exception) {}
+    val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return@CameraOverlay
+    // ✅ GL thread वर setImage call करा
+    mainHandler.post {
+        try {
+            filter.setImage(bitmap)
+        } catch (_: Exception) {}
+    }
             }
             cameraOverlay!!.start(useFront)
             notify("📷 Camera ON")
