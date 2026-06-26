@@ -149,18 +149,20 @@ class StreamService : Service(), ConnectChecker {
             
 cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
     val now = System.currentTimeMillis()
-    if (now - lastFrameTime < 100) {
-        bitmap.recycle()   // ← skip केलेले recycle करा
+    if (now - lastFrameTime < 150) {
+        bitmap.recycle()
         return@CameraOverlay
     }
     lastFrameTime = now
-    try {
-        filter.setImage(bitmap)  // ← mainHandler नाही, direct call
-    } catch (_: Exception) {
-        bitmap.recycle()
+    mainHandler.post {
+        try {
+            if (cameraFilter != null) filter.setImage(bitmap)
+            else bitmap.recycle()
+        } catch (_: Exception) {
+            bitmap.recycle()
+        }
     }
 }
-
             cameraOverlay!!.start(useFront, savedOrientation == "portrait")
             notify("📷 Camera ON")
 
@@ -222,8 +224,17 @@ cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
         } catch (_: Exception) {}
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+    // हे शोधा (line 225):
+override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    when (intent?.action) {
+
+// हे करा — action आहे पण stream नाही तर early return:
+override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    
+    // Control actions — stream चालू नसला तरी handle करा
+    val action = intent?.action
+    if (action != null) {
+        when (action) {
             "STOP" -> { stopStreaming(); return START_NOT_STICKY }
             "PAUSE" -> {
                 rtmpDisplay?.disableAudio()
@@ -264,27 +275,27 @@ cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
                 return START_NOT_STICKY
             }
             "CAMERA_TOGGLE" -> {
-    mainHandler.post {
-        if (!cameraEnabled) {
-            cameraEnabled = true
-            setupCamera()
-        } else {
-            cameraEnabled = false
-            stopCamera()
-        }
-    }
-    return START_NOT_STICKY
+                mainHandler.post {
+                    if (!cameraEnabled) {
+                        cameraEnabled = true
+                        setupCamera()
+                    } else {
+                        cameraEnabled = false
+                        stopCamera()
+                    }
+                }
+                return START_NOT_STICKY
             }
             "CAMERA_SWITCH" -> {
-    if (cameraEnabled) {  // ← फक्त camera on असेल तरच switch करा
-        cameraFacing = if (cameraFacing == "back") "front" else "back"
-        mainHandler.post {
-            stopCamera()
-            mainHandler.postDelayed({ setupCamera() }, 500)
-        }
-    }
-    return START_NOT_STICKY
-}
+                if (cameraEnabled) {
+                    cameraFacing = if (cameraFacing == "back") "front" else "back"
+                    mainHandler.post {
+                        stopCamera()
+                        mainHandler.postDelayed({ setupCamera() }, 500)
+                    }
+                }
+                return START_NOT_STICKY
+            }
             "UPDATE_OVERLAY" -> {
                 val text = intent.getStringExtra("overlayText") ?: ""
                 val imagePath = intent.getStringExtra("overlayImagePath") ?: ""
@@ -296,6 +307,11 @@ cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
                 return START_NOT_STICKY
             }
         }
+    }
+
+    // Stream start code खाली येतो (action = null म्हणजे नवीन stream)
+    val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
+    // ... बाकी सगळं तसंच
 
         val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
         val data = intent?.getParcelableExtra<Intent>("data") ?: return START_NOT_STICKY
