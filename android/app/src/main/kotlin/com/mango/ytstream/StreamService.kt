@@ -149,10 +149,15 @@ class StreamService : Service(), ConnectChecker {
             
 cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
     val now = System.currentTimeMillis()
-    if (now - lastFrameTime < 100) return@CameraOverlay
+    if (now - lastFrameTime < 100) {
+        bitmap.recycle()   // ← skip केलेले recycle करा
+        return@CameraOverlay
+    }
     lastFrameTime = now
-    mainHandler.post {
-        try { filter.setImage(bitmap) } catch (_: Exception) {}
+    try {
+        filter.setImage(bitmap)  // ← mainHandler नाही, direct call
+    } catch (_: Exception) {
+        bitmap.recycle()
     }
 }
 
