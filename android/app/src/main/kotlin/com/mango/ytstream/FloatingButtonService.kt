@@ -140,7 +140,7 @@ class FloatingButtonService : Service() {
                 camBtn.text = "🎥"; setBtnColor(camBtn, Color.argb(255, 0, 100, 200))
             } else {
                 send("CAMERA_TOGGLE"); isCamOn = false
-                camBtn.text = "📷"; setBtnColor(camBtn, Color.argb(255, 80, 0, 150))
+                camBtn.text = "📷🚫"; setBtnColor(camBtn, Color.argb(255, 80, 0, 150))
             }
         }
 
