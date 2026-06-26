@@ -57,6 +57,8 @@ class StreamService : Service(), ConnectChecker {
 private var cameraFacing = "back"
 private var cameraMode = "pip"
 private var camera2Source: Camera2Source? = null
+    private var cameraOverlay: CameraOverlay? = null
+private var cameraFilter: ImageObjectFilterRender? = null
 
     private var textFilter: TextObjectFilterRender? = null
     private var imageFilter: ImageObjectFilterRender? = null
@@ -86,8 +88,44 @@ private var camera2Source: Camera2Source? = null
         }
     }
 private fun setupCamera() {
-    // Camera feature coming soon
-    // Pedro 2.7.3 मध्ये Camera2Source API different आहे
+    if (!cameraEnabled) return
+    try {
+        val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return
+
+        // आधीचा filter काढ
+        cameraFilter?.let { try { glInterface.removeFilter(it) } catch (_: Exception) {} }
+        cameraFilter = null
+        cameraOverlay?.stop()
+        cameraOverlay = null
+
+        // नवीन filter बनव
+        val filter = ImageObjectFilterRender()
+        when (cameraMode) {
+            "pip" -> {
+                filter.setScale(28f, 28f)
+                filter.setPosition(70f, 70f)
+            }
+            "split" -> {
+                filter.setScale(100f, 30f)
+                filter.setPosition(0f, 70f)
+            }
+        }
+        glInterface.addFilter(filter)
+        cameraFilter = filter
+
+        // Camera start
+        val useFront = cameraFacing == "front"
+        cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
+            mainHandler.post {
+                filter.setImage(bitmap)
+            }
+        }
+        cameraOverlay!!.start(useFront)
+        notify("📷 Camera ON")
+
+    } catch (e: Exception) {
+        notify("Camera error: ${e.message}")
+    }
 }
     private fun releaseWakeLock() {
         try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
@@ -203,15 +241,24 @@ private fun setupCamera() {
                 return START_NOT_STICKY
             }
             "CAMERA_TOGGLE" -> {
-    try { camera2Source?.stop() } catch (_: Exception) {}
-    camera2Source = null
-    mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera OFF") }
+    if (cameraOverlay?.isActive() == true) {
+        cameraOverlay?.stop()
+        cameraOverlay = null
+        cameraFilter?.let {
+            val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface
+            try { glInterface?.removeFilter(it) } catch (_: Exception) {}
+        }
+        cameraFilter = null
+        mainHandler.post { mainActivity?.notifyFlutter("onStreamError", "📷 Camera OFF") }
+    } else {
+        setupCamera()
+    }
     return START_NOT_STICKY
 }
 "CAMERA_SWITCH" -> {
     cameraFacing = if (cameraFacing == "back") "front" else "back"
-    
-    camera2Source = null
+    cameraOverlay?.stop()
+    cameraOverlay = null
     mainHandler.postDelayed({ setupCamera() }, 300)
     return START_NOT_STICKY
 }
@@ -380,6 +427,8 @@ cameraMode = intent.getStringExtra("cameraMode") ?: "pip"
         try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
         try { if (genericStream?.isStreaming == true) genericStream?.stopStream() } catch (_: Exception) {}
         try { camera2Source?.stop() } catch (_: Exception) {}
+        try { cameraOverlay?.stop() } catch (_: Exception) {}
+cameraOverlay = null
         releaseWakeLock(); stopForeground(true); stopSelf()
         mainHandler.post { mainActivity?.notifyFlutter("onStreamStopped") }
     }
