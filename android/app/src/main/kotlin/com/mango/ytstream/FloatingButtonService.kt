@@ -137,7 +137,7 @@ class FloatingButtonService : Service() {
         camBtn.setOnClickListener {
             if (!isCamOn) {
                 send("CAMERA_TOGGLE"); isCamOn = true
-                camBtn.text = "🎥"; setBtnColor(camBtn, Color.argb(255, 0, 100, 200))
+                camBtn.text = "📷"; setBtnColor(camBtn, Color.argb(255, 0, 100, 200))
             } else {
                 send("CAMERA_TOGGLE"); isCamOn = false
                 camBtn.text = "📷🚫"; setBtnColor(camBtn, Color.argb(255, 80, 0, 150))
