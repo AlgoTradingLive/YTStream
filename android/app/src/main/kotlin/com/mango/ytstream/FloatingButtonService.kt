@@ -178,7 +178,7 @@ class FloatingButtonService : Service() {
         this.action = action
     }
     startService(intent)  // ← startForegroundService नाही
-}
+
 }
 
     private fun makeBtn(text: String, color: Int) = TextView(this).apply {
