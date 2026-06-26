@@ -2,8 +2,13 @@ package com.mango.ytstream
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
-import android.hardware.camera2.*
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
@@ -25,14 +30,18 @@ class CameraOverlay(
 
         val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
-        val cameraId = manager.cameraIdList.firstOrNull { id ->
-            val facing = manager.getCameraCharacteristics(id)
-                .get(CameraCharacteristics.LENS_FACING)
-            if (useFront) facing == CameraCharacteristics.LENS_FACING_FRONT
-            else facing == CameraCharacteristics.LENS_FACING_BACK
-        } ?: return
+        var cameraId: String? = null
+        for (id in manager.cameraIdList) {
+            val characteristics = manager.getCameraCharacteristics(id)
+            val facing = characteristics.get(CameraCharacteristics.LENS_FACING)
+            if (useFront && facing == CameraCharacteristics.LENS_FACING_FRONT) {
+                cameraId = id; break
+            } else if (!useFront && facing == CameraCharacteristics.LENS_FACING_BACK) {
+                cameraId = id; break
+            }
+        }
+        if (cameraId == null) return
 
-        // ✅ JPEG format वापरतो — RGBA_8888 camera support करत नाही
         imageReader = ImageReader.newInstance(480, 640, ImageFormat.JPEG, 2)
         imageReader!!.setOnImageAvailableListener({ reader ->
             val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
@@ -40,7 +49,7 @@ class CameraOverlay(
                 val buffer = image.planes[0].buffer
                 val bytes = ByteArray(buffer.remaining())
                 buffer.get(bytes)
-                val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 if (bitmap != null) onFrame(bitmap)
             } catch (_: Exception) {
             } finally {
