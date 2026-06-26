@@ -76,9 +76,9 @@ class CameraOverlay(
 
                     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     if (bitmap != null && isRunning.get()) {
-                       val copy = bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, false)
-                        bitmap.recycle()
-                        onFrame(copy)
+                       val copy = bitmap.copy(Bitmap.Config.ARGB_8888, true)  // ← true = mutable
+bitmap.recycle()
+if (isRunning.get()) onFrame(copy) else copy.recycle()
                     }
                 } catch (_: Exception) {
                 } finally {
