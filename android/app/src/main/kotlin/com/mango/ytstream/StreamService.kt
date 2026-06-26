@@ -154,7 +154,7 @@ class StreamService : Service(), ConnectChecker {
         } catch (_: Exception) {}
     }
             }
-            cameraOverlay!!.start(useFront)
+            cameraOverlay!!.start(useFront, savedOrientation == "portrait")
             notify("📷 Camera ON")
 
         } catch (e: Exception) {
