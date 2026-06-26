@@ -27,7 +27,7 @@ class CameraOverlay(
     private val isRunning = AtomicBoolean(false)
     private val isProcessing = AtomicBoolean(false)
 
-    fun start(useFront: Boolean) {
+    fun start(useFront: Boolean, isPortrait: Boolean = false) {
         if (isRunning.get()) stop()
 
         cameraThread = HandlerThread("CameraThread").also { it.start() }
@@ -52,7 +52,7 @@ class CameraOverlay(
         if (cameraId == null) return
 
         // ✅ फक्त 1 buffer — lag कमी होईल
-        imageReader = ImageReader.newInstance(320, 240, ImageFormat.JPEG, 1)
+        imageReader = ImageReader.newInstance( if (isPortrait) 240 else 320, if (isPortrait) 320 else 240, ImageFormat.JPEG, 1)
         imageReader!!.setOnImageAvailableListener({ reader ->
             // ✅ आधीचं processing चालू असेल तर skip कर
             if (isProcessing.getAndSet(true)) {
