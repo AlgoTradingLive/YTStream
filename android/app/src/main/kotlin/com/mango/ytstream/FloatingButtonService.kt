@@ -177,11 +177,8 @@ class FloatingButtonService : Service() {
     val intent = Intent(applicationContext, StreamService::class.java).apply {
         this.action = action
     }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        startForegroundService(intent) // ← startService ऐवजी
-    } else {
-        startService(intent)
-    }
+    startService(intent)  // ← startForegroundService नाही
+}
 }
 
     private fun makeBtn(text: String, color: Int) = TextView(this).apply {
