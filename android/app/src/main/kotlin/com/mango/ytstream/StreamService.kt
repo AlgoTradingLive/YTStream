@@ -62,6 +62,7 @@ class StreamService : Service(), ConnectChecker {
     private var lastTextY = 0.05f
     private var lastImageX = 0.7f
     private var lastImageY = 0.05f
+    private var lastFrameTime = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -145,15 +146,16 @@ class StreamService : Service(), ConnectChecker {
 
             // CameraOverlay start — प्रत्येक frame filter ला देतो
             val useFront = cameraFacing == "front"
-            cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
-    val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return@CameraOverlay
-    // ✅ GL thread वर setImage call करा
-    glInterface.post {
-        try {
-            filter.setImage(bitmap)
-        } catch (_: Exception) {}
+            
+cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
+    val now = System.currentTimeMillis()
+    if (now - lastFrameTime < 100) return@CameraOverlay
+    lastFrameTime = now
+    mainHandler.post {
+        try { filter.setImage(bitmap) } catch (_: Exception) {}
     }
-            }
+}
+
             cameraOverlay!!.start(useFront, savedOrientation == "portrait")
             notify("📷 Camera ON")
 
