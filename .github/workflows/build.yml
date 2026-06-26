@@ -2,7 +2,7 @@ name: Build YT Stream
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, camera-feature  ]
   workflow_dispatch:
 
 jobs:
