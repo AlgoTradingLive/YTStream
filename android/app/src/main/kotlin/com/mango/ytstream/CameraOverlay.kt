@@ -2,13 +2,11 @@ package com.mango.ytstream
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.PixelFormat
-import android.graphics.SurfaceTexture
+import android.graphics.ImageFormat
 import android.hardware.camera2.*
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
-import android.view.Surface
 
 class CameraOverlay(
     private val context: Context,
@@ -34,20 +32,16 @@ class CameraOverlay(
             else facing == CameraCharacteristics.LENS_FACING_BACK
         } ?: return
 
-        imageReader = ImageReader.newInstance(480, 640, PixelFormat.RGBA_8888, 2)
+        // ✅ JPEG format वापरतो — RGBA_8888 camera support करत नाही
+        imageReader = ImageReader.newInstance(480, 640, ImageFormat.JPEG, 2)
         imageReader!!.setOnImageAvailableListener({ reader ->
             val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
             try {
-                val planes = image.planes
-                val buffer = planes[0].buffer
-                val pixelStride = planes[0].pixelStride
-                val rowStride = planes[0].rowStride
-                val rowPadding = rowStride - pixelStride * 480
-                val bitmap = Bitmap.createBitmap(
-                    480 + rowPadding / pixelStride, 640, Bitmap.Config.ARGB_8888
-                )
-                bitmap.copyPixelsFromBuffer(buffer)
-                onFrame(bitmap)
+                val buffer = image.planes[0].buffer
+                val bytes = ByteArray(buffer.remaining())
+                buffer.get(bytes)
+                val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bitmap != null) onFrame(bitmap)
             } catch (_: Exception) {
             } finally {
                 image.close()
