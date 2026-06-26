@@ -34,6 +34,8 @@ class MainActivity : FlutterActivity() {
     private var pendingImageX: Double = 0.7
     private var pendingImageY: Double = 0.05
     private var pendingCameraEnabled: Boolean = false
+    private var pendingCameraFacing: String = "back"
+    private var pendingCameraMode: String = "pip"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -52,6 +54,8 @@ class MainActivity : FlutterActivity() {
                     pendingImageX = call.argument("imageX") ?: 0.7
                     pendingImageY = call.argument("imageY") ?: 0.05
                     pendingCameraEnabled = call.argument("cameraEnabled") ?: false
+                    pendingCameraFacing = call.argument("cameraFacing") ?: "back"
+                    pendingCameraMode = call.argument("cameraMode") ?: "pip"
                     pendingResult = result
                     checkPermissionsAndStart()
                 }
@@ -64,9 +68,6 @@ class MainActivity : FlutterActivity() {
                         putExtra("textY", (call.argument("textY") as? Double)?.toFloat() ?: 0.05f)
                         putExtra("imageX", (call.argument("imageX") as? Double)?.toFloat() ?: 0.7f)
                         putExtra("imageY", (call.argument("imageY") as? Double)?.toFloat() ?: 0.05f)
-                        putExtra("cameraEnabled", call.argument("cameraEnabled") ?: false)
-putExtra("cameraFacing", call.argument("cameraFacing") ?: "back")
-putExtra("cameraMode", call.argument("cameraMode") ?: "pip")
                     }
                     startService(i)
                     result.success(null)
@@ -90,28 +91,28 @@ putExtra("cameraMode", call.argument("cameraMode") ?: "pip")
     }
 
     private fun checkPermissionsAndStart() {
-    val perms = mutableListOf<String>()
-    
-    if (pendingAudioMode == "mic_internal") {
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
-            perms.add(android.Manifest.permission.RECORD_AUDIO)
+        val perms = mutableListOf<String>()
+
+        if (pendingAudioMode == "mic_internal") {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+                perms.add(android.Manifest.permission.RECORD_AUDIO)
+            }
         }
-    }
-    
-    if (pendingCameraEnabled == true) {
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
-            != PackageManager.PERMISSION_GRANTED) {
-            perms.add(android.Manifest.permission.CAMERA)
+
+        if (pendingCameraEnabled) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+                perms.add(android.Manifest.permission.CAMERA)
+            }
         }
+
+        if (perms.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, perms.toTypedArray(), REQUEST_MIC_PERMISSION)
+            return
+        }
+        checkOverlayAndStart()
     }
-    
-    if (perms.isNotEmpty()) {
-        ActivityCompat.requestPermissions(this, perms.toTypedArray(), REQUEST_MIC_PERMISSION)
-        return
-    }
-    checkOverlayAndStart()
-}
 
     private fun checkOverlayAndStart() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
@@ -132,8 +133,8 @@ putExtra("cameraMode", call.argument("cameraMode") ?: "pip")
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 checkOverlayAndStart()
             } else {
-                pendingResult?.error("MIC_DENIED", "Microphone permission denied", null)
-                methodChannel?.invokeMethod("onStreamError", "Microphone permission denied")
+                pendingResult?.error("MIC_DENIED", "Permission denied", null)
+                methodChannel?.invokeMethod("onStreamError", "Permission denied")
                 pendingResult = null
             }
         }
@@ -163,6 +164,9 @@ putExtra("cameraMode", call.argument("cameraMode") ?: "pip")
                         putExtra("textY", pendingTextY.toFloat())
                         putExtra("imageX", pendingImageX.toFloat())
                         putExtra("imageY", pendingImageY.toFloat())
+                        putExtra("cameraEnabled", pendingCameraEnabled)
+                        putExtra("cameraFacing", pendingCameraFacing)
+                        putExtra("cameraMode", pendingCameraMode)
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
                     else startService(intent)
