@@ -148,7 +148,7 @@ class StreamService : Service(), ConnectChecker {
             cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
     val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return@CameraOverlay
     // ✅ GL thread वर setImage call करा
-    mainHandler.post {
+    glInterface.post {
         try {
             filter.setImage(bitmap)
         } catch (_: Exception) {}
@@ -259,9 +259,11 @@ class StreamService : Service(), ConnectChecker {
             "CAMERA_TOGGLE" -> {
                 mainHandler.post {
                     if (cameraOverlay?.isActive() == true) {
+                       cameraEnabled = false
                         stopCamera()
                         mainActivity?.notifyFlutter("onStreamError", "📷 Camera OFF")
                     } else {
+                        cameraEnabled = true
                         setupCamera()
                     }
                 }
@@ -271,7 +273,7 @@ class StreamService : Service(), ConnectChecker {
                 cameraFacing = if (cameraFacing == "back") "front" else "back"
                 mainHandler.post {
                     stopCamera()
-                    mainHandler.postDelayed({ setupCamera() }, 300)
+                    mainHandler.postDelayed({ setupCamera() }, 500)
                 }
                 return START_NOT_STICKY
             }
