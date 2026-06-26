@@ -371,8 +371,7 @@ cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
             getGlInterface().setForceRender(true)
         }
 
-        genericStream!!.setFps(30)
-genericStream!!.setIFrameInterval(2)
+        
 val vOk = genericStream!!.prepareVideo(w, h, 1_500_000)
         val aOk = genericStream!!.prepareAudio(
             sampleRate = 44100, isStereo = true, bitrate = 128_000,
@@ -402,8 +401,7 @@ val vOk = genericStream!!.prepareVideo(w, h, 1_500_000)
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        rtmpDisplay!!.setFps(30)
-rtmpDisplay!!.setIFrameInterval(2)  // 2 seconds keyframe
+        // 2 seconds keyframe
 val vOk = rtmpDisplay!!.prepareVideo(w, h, 1_500_000)
         var aOk = false
         for ((br, sr, st) in listOf(
