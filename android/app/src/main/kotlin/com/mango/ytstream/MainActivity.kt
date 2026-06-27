@@ -36,6 +36,7 @@ class MainActivity : FlutterActivity() {
     private var pendingCameraEnabled: Boolean = false
     private var pendingCameraFacing: String = "back"
     private var pendingCameraMode: String = "pip"
+    private var isStreaming: Boolean = false  // stream चालू आहे का track करण्यासाठी
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -178,6 +179,7 @@ class MainActivity : FlutterActivity() {
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
                     else startService(intent)
+                    isStreaming = true
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this))
                         startService(Intent(this, FloatingButtonService::class.java))
                     pendingResult?.success(null)
@@ -191,12 +193,33 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun stopStreamService() {
+        isStreaming = false
         startService(Intent(this, StreamService::class.java).apply { action = "STOP" })
         stopService(Intent(this, FloatingButtonService::class.java))
     }
 
     fun notifyFlutter(method: String, args: Any? = null) {
         runOnUiThread { methodChannel?.invokeMethod(method, args) }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // दुसरा app foreground आला → stream चालू असेल तर camera release करा
+        if (isStreaming) {
+            startService(Intent(this, StreamService::class.java).apply {
+                action = "CAMERA_PAUSE"
+            })
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // आपला app परत foreground → stream चालू असेल तर camera restart करा
+        if (isStreaming) {
+            startService(Intent(this, StreamService::class.java).apply {
+                action = "CAMERA_RESUME"
+            })
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

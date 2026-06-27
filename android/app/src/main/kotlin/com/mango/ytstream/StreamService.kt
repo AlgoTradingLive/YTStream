@@ -123,30 +123,9 @@ class StreamService : Service(), ConnectChecker {
      * isCameraRestarting flag मुळे multiple restarts होत नाहीत.
      */
     private fun onCameraInterrupted() {
-        mainHandler.post {
-            if (!cameraEnabled) return@post
-            if (isCameraRestarting) {
-                Log.d(TAG, "Camera restart already pending, skipping")
-                return@post
-            }
-            isCameraRestarting = true
-            Log.d(TAG, "Camera interrupted — will restart in 2s")
-
-            mainHandler.postDelayed({
-                if (cameraEnabled) {
-                    Log.d(TAG, "Restarting camera after interrupt...")
-                    stopCamera()
-                    mainHandler.postDelayed({
-                        if (cameraEnabled) {
-                            setupCamera()
-                        }
-                        isCameraRestarting = false
-                    }, 600)
-                } else {
-                    isCameraRestarting = false
-                }
-            }, 2000)
-        }
+        // onPause/onResume MainActivity मधून handle होतं आता
+        // इथे काही करायची गरज नाही — camera pause झाला तर resume ने restart होईल
+        Log.d(TAG, "Camera interrupted — waiting for onResume to restart")
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -332,6 +311,30 @@ class StreamService : Service(), ConnectChecker {
                         cameraEnabled = false
                         isCameraRestarting = false
                         stopCamera()
+                    }
+                }
+                return START_NOT_STICKY
+            }
+            "CAMERA_PAUSE" -> {
+                // दुसरा app foreground आला → camera तात्पुरता release करा
+                mainHandler.post {
+                    if (cameraEnabled) {
+                        Log.d(TAG, "CAMERA_PAUSE — releasing camera for other app")
+                        isCameraRestarting = false
+                        cameraOverlay?.stop()
+                        cameraOverlay = null
+                    }
+                }
+                return START_NOT_STICKY
+            }
+            "CAMERA_RESUME" -> {
+                // आपला app परत foreground → camera restart करा
+                mainHandler.post {
+                    if (cameraEnabled) {
+                        Log.d(TAG, "CAMERA_RESUME — restarting camera")
+                        isCameraRestarting = false
+                        // थोडा delay द्या म्हणजे system camera release confirm होईल
+                        mainHandler.postDelayed({ setupCamera() }, 500)
                     }
                 }
                 return START_NOT_STICKY
