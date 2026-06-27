@@ -1,33 +1,37 @@
 package com.mango.ytstream
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.ImageFormat
+import android.graphics.SurfaceTexture
+import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
-import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
-import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
+import android.view.Surface
 import java.util.concurrent.atomic.AtomicBoolean
 
 class CameraOverlay(
     private val context: Context,
-    private val onFrame: (Bitmap) -> Unit
+    private val onSurfaceTexture: (SurfaceTexture) -> Unit,
+    private val onStopped: () -> Unit = {}
 ) {
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
-    private var imageReader: ImageReader? = null
+    private var surfaceTexture: SurfaceTexture? = null
+    private var surface: Surface? = null
     private var cameraThread: HandlerThread? = null
     private var cameraHandler: Handler? = null
-    private var processThread: HandlerThread? = null
-    private var processHandler: Handler? = null
     private val isRunning = AtomicBoolean(false)
-    private val isProcessing = AtomicBoolean(false)
+
+    companion object {
+        private const val TAG = "CameraOverlay"
+        // Camera preview size — GL filter साठी
+        const val PREVIEW_W = 320
+        const val PREVIEW_H = 240
+    }
 
     fun start(useFront: Boolean, isPortrait: Boolean = false) {
         if (isRunning.get()) stop()
@@ -35,16 +39,13 @@ class CameraOverlay(
         cameraThread = HandlerThread("CameraThread").also { it.start() }
         cameraHandler = Handler(cameraThread!!.looper)
 
-        processThread = HandlerThread("CameraProcessThread").also { it.start() }
-        processHandler = Handler(processThread!!.looper)
-
         val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
         var cameraId: String? = null
         try {
             for (id in manager.cameraIdList) {
-                val characteristics = manager.getCameraCharacteristics(id)
-                val facing = characteristics.get(CameraCharacteristics.LENS_FACING)
+                val facing = manager.getCameraCharacteristics(id)
+                    .get(CameraCharacteristics.LENS_FACING)
                 if (useFront && facing == CameraCharacteristics.LENS_FACING_FRONT) {
                     cameraId = id; break
                 } else if (!useFront && facing == CameraCharacteristics.LENS_FACING_BACK) {
@@ -52,130 +53,98 @@ class CameraOverlay(
                 }
             }
         } catch (e: Exception) {
-            Log.e("CameraOverlay", "Camera list error: ${e.message}")
+            Log.e(TAG, "Camera list error: ${e.message}")
             return
         }
 
         if (cameraId == null) {
-            Log.e("CameraOverlay", "No camera found useFront=$useFront")
+            Log.e(TAG, "No camera found")
             return
         }
 
-        val w = if (isPortrait) 240 else 320
-        val h = if (isPortrait) 320 else 240
+        // SurfaceTexture बनवा — GL texture ID 0 (external)
+        val st = SurfaceTexture(0)
+        val w = if (isPortrait) PREVIEW_H else PREVIEW_W
+        val h = if (isPortrait) PREVIEW_W else PREVIEW_H
+        st.setDefaultBufferSize(w, h)
+        surfaceTexture = st
 
-        imageReader = ImageReader.newInstance(w, h, ImageFormat.JPEG, 2)
-        imageReader!!.setOnImageAvailableListener({ reader ->
-            if (isProcessing.getAndSet(true)) {
-                try { reader.acquireLatestImage()?.close() } catch (_: Exception) {}
-                return@setOnImageAvailableListener
-            }
+        // GL filter ला SurfaceTexture द्या
+        onSurfaceTexture(st)
 
-            val image = try { reader.acquireLatestImage() } catch (_: Exception) { null }
-            if (image == null) {
-                isProcessing.set(false)
-                return@setOnImageAvailableListener
-            }
-
-            processHandler?.post {
-                try {
-                    val buffer = image.planes[0].buffer
-                    val bytes = ByteArray(buffer.remaining())
-                    buffer.get(bytes)
-                    image.close()
-
-                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    if (bitmap != null && isRunning.get()) {
-                        val copy = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-                        bitmap.recycle()
-                        onFrame(copy)
-                    } else {
-                        bitmap?.recycle()
-                    }
-                } catch (e: Exception) {
-                    Log.e("CameraOverlay", "Process error: ${e.message}")
-                    try { image.close() } catch (_: Exception) {}
-                } finally {
-                    isProcessing.set(false)
-                }
-            }
-        }, cameraHandler)
+        val sf = Surface(st)
+        surface = sf
 
         try {
             manager.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     cameraDevice = camera
-                    val surface = imageReader!!.surface
                     try {
                         camera.createCaptureSession(
-                            listOf(surface),
+                            listOf(sf),
                             object : CameraCaptureSession.StateCallback() {
                                 override fun onConfigured(session: CameraCaptureSession) {
                                     captureSession = session
                                     try {
-                                        val request = camera.createCaptureRequest(
+                                        val req = camera.createCaptureRequest(
                                             CameraDevice.TEMPLATE_PREVIEW
                                         ).apply {
-                                            addTarget(surface)
+                                            addTarget(sf)
                                             set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
-                                                android.util.Range(8, 15))
+                                                android.util.Range(15, 30))
                                         }.build()
-                                        session.setRepeatingRequest(request, null, cameraHandler)
+                                        session.setRepeatingRequest(req, null, cameraHandler)
                                         isRunning.set(true)
-                                        Log.d("CameraOverlay", "Camera started OK")
+                                        Log.d(TAG, "Camera started OK")
                                     } catch (e: Exception) {
-                                        Log.e("CameraOverlay", "Request error: ${e.message}")
+                                        Log.e(TAG, "Request error: ${e.message}")
                                         isRunning.set(false)
                                     }
                                 }
                                 override fun onConfigureFailed(session: CameraCaptureSession) {
-                                    Log.e("CameraOverlay", "Session configure failed")
+                                    Log.e(TAG, "Session configure failed")
                                     isRunning.set(false)
                                 }
-                            },
-                            cameraHandler
+                            }, cameraHandler
                         )
                     } catch (e: Exception) {
-                        Log.e("CameraOverlay", "createCaptureSession error: ${e.message}")
+                        Log.e(TAG, "createCaptureSession error: ${e.message}")
                     }
                 }
+
                 override fun onDisconnected(camera: CameraDevice) {
-                    Log.w("CameraOverlay", "Camera disconnected")
-                    camera.close()
-                    cameraDevice = null
-                    isRunning.set(false)
+                    Log.w(TAG, "Camera disconnected")
+                    camera.close(); cameraDevice = null; isRunning.set(false)
                 }
+
                 override fun onError(camera: CameraDevice, error: Int) {
-                    Log.e("CameraOverlay", "Camera error: $error")
-                    camera.close()
-                    cameraDevice = null
-                    isRunning.set(false)
+                    Log.e(TAG, "Camera error: $error")
+                    camera.close(); cameraDevice = null; isRunning.set(false)
                 }
             }, cameraHandler)
         } catch (e: SecurityException) {
-            Log.e("CameraOverlay", "Camera permission denied: ${e.message}")
+            Log.e(TAG, "Permission denied: ${e.message}")
         } catch (e: Exception) {
-            Log.e("CameraOverlay", "openCamera error: ${e.message}")
+            Log.e(TAG, "openCamera error: ${e.message}")
         }
     }
 
     fun stop() {
         isRunning.set(false)
-        isProcessing.set(false)
         try { captureSession?.stopRepeating() } catch (_: Exception) {}
         try { captureSession?.close() } catch (_: Exception) {}
         try { cameraDevice?.close() } catch (_: Exception) {}
-        try { imageReader?.close() } catch (_: Exception) {}
+        try { surface?.release() } catch (_: Exception) {}
+        try { surfaceTexture?.release() } catch (_: Exception) {}
         try { cameraThread?.quitSafely() } catch (_: Exception) {}
-        try { processThread?.quitSafely() } catch (_: Exception) {}
         cameraDevice = null
         captureSession = null
-        imageReader = null
+        surface = null
+        surfaceTexture = null
         cameraThread = null
         cameraHandler = null
-        processThread = null
-        processHandler = null
-        Log.d("CameraOverlay", "Camera stopped")
+        onStopped()
+        Log.d(TAG, "Camera stopped")
     }
 
     fun isActive() = isRunning.get()
