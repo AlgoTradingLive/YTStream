@@ -138,12 +138,12 @@ class StreamService : Service(), ConnectChecker {
             cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
                 val currentFilter = cameraFilter
                 if (currentFilter == null) { bitmap.recycle(); return@CameraOverlay }
-                mainHandler.post {
-                    try {
-                        if (cameraFilter != null) currentFilter.setImage(bitmap)
-                        else bitmap.recycle()
-                    } catch (_: Exception) { bitmap.recycle() }
-                }
+                // mainHandler नाही — processThread वरूनच directly GL filter update
+                // GL thread independent आहे mainThread पासून
+                try {
+                    if (cameraFilter != null) currentFilter.setImage(bitmap)
+                    else bitmap.recycle()
+                } catch (_: Exception) { bitmap.recycle() }
             }
 
             cameraOverlay!!.start(useFront, savedOrientation == "portrait")
