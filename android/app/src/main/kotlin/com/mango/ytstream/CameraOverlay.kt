@@ -21,7 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class CameraOverlay(
     private val context: Context,
-    private val onFrame: (Bitmap) -> Unit
+    private val onFrame: (Bitmap) -> Unit,
+    private val onCameraError: (() -> Unit)? = null  // ← नवीन: freeze/error झाल्यावर StreamService ला सांगण्यासाठी
 ) {
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
@@ -40,7 +41,6 @@ class CameraOverlay(
     }
 
     // YUV_420_888 → NV21 → JPEG → Bitmap
-    // YUV_420_888 चे planes बरोबर copy करतो
     private fun imageToNv21(image: Image): ByteArray {
         val width = image.width
         val height = image.height
@@ -59,7 +59,6 @@ class CameraOverlay(
 
         val nv21 = ByteArray(width * height * 3 / 2)
 
-        // Y plane copy (row by row — row stride वेगळा असू शकतो)
         var pos = 0
         for (row in 0 until height) {
             yBuffer.position(row * yRowStride)
@@ -67,11 +66,9 @@ class CameraOverlay(
             pos += width
         }
 
-        // VU interleaved (NV21 format: V then U)
         for (row in 0 until height / 2) {
             for (col in 0 until width / 2) {
                 val uvIndex = row * uvRowStride + col * uvPixelStride
-                // NV21: V before U
                 vBuffer.position(uvIndex)
                 nv21[pos++] = vBuffer.get()
                 uBuffer.position(uvIndex)
@@ -183,19 +180,32 @@ class CameraOverlay(
                                     }
                                 }
                                 override fun onConfigureFailed(s: CameraCaptureSession) {
-                                    Log.e(TAG, "Configure failed"); isRunning.set(false)
+                                    Log.e(TAG, "Configure failed")
+                                    isRunning.set(false)
+                                    // ← Configure fail झाला तर पण callback
+                                    onCameraError?.invoke()
                                 }
                             }, cameraHandler)
                     } catch (e: Exception) {
                         Log.e(TAG, "Session error: ${e.message}")
                     }
                 }
+
                 override fun onDisconnected(camera: CameraDevice) {
-                    camera.close(); cameraDevice = null; isRunning.set(false)
+                    // ← Single app share मध्ये हेच trigger होतं!
+                    Log.w(TAG, "Camera disconnected (likely interrupted by screen share)")
+                    camera.close()
+                    cameraDevice = null
+                    isRunning.set(false)
+                    onCameraError?.invoke()  // StreamService ला सांग → restart होईल
                 }
+
                 override fun onError(camera: CameraDevice, error: Int) {
                     Log.e(TAG, "Camera error: $error")
-                    camera.close(); cameraDevice = null; isRunning.set(false)
+                    camera.close()
+                    cameraDevice = null
+                    isRunning.set(false)
+                    onCameraError?.invoke()  // StreamService ला सांग → restart होईल
                 }
             }, cameraHandler)
         } catch (e: SecurityException) {
