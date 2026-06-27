@@ -63,8 +63,6 @@ class StreamService : Service(), ConnectChecker {
     private var lastImageX = 0.7f
     private var lastImageY = 0.05f
     private var lastFrameTime = 0L
-
-    // Single app share mode detect करायला
     private var isSingleAppShare = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -112,11 +110,10 @@ class StreamService : Service(), ConnectChecker {
     private fun applyVoiceEffect(mode: String) {}
 
     private fun getCameraFrameInterval(): Long {
-        // Single app share किंवा split mode मध्ये जास्त throttle
         return when {
-            isSingleAppShare -> 500L   // 2 fps — single app share heavy असतो
-            cameraMode == "split" -> 300L  // ~3 fps
-            else -> 150L               // ~6 fps — full screen PIP
+            isSingleAppShare -> 500L
+            cameraMode == "split" -> 300L
+            else -> 150L
         }
     }
 
@@ -127,7 +124,6 @@ class StreamService : Service(), ConnectChecker {
                 return
             }
 
-            // आधीचा filter properly काढा
             val oldFilter = cameraFilter
             if (oldFilter != null) {
                 try { glInterface.removeFilter(oldFilter) } catch (_: Exception) {}
@@ -136,23 +132,13 @@ class StreamService : Service(), ConnectChecker {
             cameraOverlay?.stop()
             cameraOverlay = null
 
-            // थोडा delay द्या — GL thread settle होऊ दे
             Thread.sleep(100)
 
             val filter = ImageObjectFilterRender()
             when (cameraMode) {
-                "pip" -> {
-                    filter.setScale(25f, 25f)   // थोडं लहान — GL load कमी
-                    filter.setPosition(72f, 70f)
-                }
-                "split" -> {
-                    filter.setScale(98f, 28f)   // 100% नाही — boundary issue टाळा
-                    filter.setPosition(1f, 71f)
-                }
-                else -> {
-                    filter.setScale(25f, 25f)
-                    filter.setPosition(72f, 70f)
-                }
+                "pip" -> { filter.setScale(25f, 25f); filter.setPosition(72f, 70f) }
+                "split" -> { filter.setScale(98f, 28f); filter.setPosition(1f, 71f) }
+                else -> { filter.setScale(25f, 25f); filter.setPosition(72f, 70f) }
             }
             glInterface.addFilter(filter)
             cameraFilter = filter
@@ -168,7 +154,6 @@ class StreamService : Service(), ConnectChecker {
                 }
                 lastFrameTime = now
 
-                // cameraFilter null झाला असेल तर (stop झाला) recycle करा
                 val currentFilter = cameraFilter
                 if (currentFilter == null) {
                     bitmap.recycle()
@@ -177,7 +162,6 @@ class StreamService : Service(), ConnectChecker {
 
                 mainHandler.post {
                     try {
-                        // Double-check — mainHandler येईपर्यंत stop झाला असेल
                         if (cameraFilter != null) {
                             currentFilter.setImage(bitmap)
                         } else {
@@ -200,15 +184,12 @@ class StreamService : Service(), ConnectChecker {
     private fun stopCamera() {
         val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface
         val oldFilter = cameraFilter
-        cameraFilter = null  // आधी null करा — callback ला signal
-
+        cameraFilter = null
         if (oldFilter != null) {
             try { glInterface?.removeFilter(oldFilter) } catch (_: Exception) {}
         }
-
         cameraOverlay?.stop()
         cameraOverlay = null
-        notify("📷 Camera OFF")
     }
 
     private fun applyOverlay(
@@ -237,11 +218,8 @@ class StreamService : Service(), ConnectChecker {
             }
 
             if (overlayImagePath.isNotEmpty()) {
-                val opts = BitmapFactory.Options().apply {
-                    inPreferredConfig = Bitmap.Config.ARGB_8888
-                    inSampleSize = 1
-                }
-                val bitmap = BitmapFactory.decodeFile(overlayImagePath, opts)
+                val bitmap = BitmapFactory.decodeFile(overlayImagePath,
+                    BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 })
                 if (bitmap != null) {
                     val sf = ImageObjectFilterRender()
                     sf.setScale(20f, 20f)
@@ -351,6 +329,7 @@ class StreamService : Service(), ConnectChecker {
             }
         }
 
+        // action = null → नवीन stream start
         val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
         val data = intent?.getParcelableExtra<Intent>("data") ?: return START_NOT_STICKY
         val rtmpUrl = intent.getStringExtra("rtmpUrl") ?: return START_NOT_STICKY
@@ -479,27 +458,32 @@ class StreamService : Service(), ConnectChecker {
     }
 
     override fun onConnectionStarted(url: String) {}
+
     override fun onConnectionSuccess() {
         mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
     }
+
     override fun onConnectionFailed(reason: String) {
-    notify("⚠️ Failed: $reason")
-    // 10 seconds नंतर बघू — Pedro retry करतो
-    mainHandler.postDelayed({
-        val isStillStreaming = rtmpDisplay?.isStreaming == true || genericStream?.isStreaming == true
-        if (!isStillStreaming) {
-            releaseWakeLock(); stopSelf()
-        }
-    }, 10_000)
-}
+        notify("⚠️ Failed: $reason")
+        mainHandler.postDelayed({
+            val isStillStreaming = rtmpDisplay?.isStreaming == true ||
+                                   genericStream?.isStreaming == true
+            if (!isStillStreaming) {
+                releaseWakeLock()
+                stopSelf()
+            }
+        }, 10_000)
+    }
+
     override fun onNewBitrate(bitrate: Long) {
         mainHandler.post { mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate / 1000}") }
     }
+
     override fun onDisconnect() {
-    notify("⚠️ Disconnected - reconnecting...")
-    // stopSelf() नाही — Pedro आपोआप reconnect करतो
+        // Pedro आपोआप reconnect करतो — stopSelf() नाही
+        notify("⚠️ Disconnected - reconnecting...")
     }
-    }
+
     override fun onAuthError() { notify("Auth error") }
     override fun onAuthSuccess() {}
 
@@ -516,14 +500,18 @@ class StreamService : Service(), ConnectChecker {
         try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
         try { if (genericStream?.isStreaming == true) genericStream?.stopStream() } catch (_: Exception) {}
         stopCamera()
-        releaseWakeLock(); stopForeground(true); stopSelf()
+        releaseWakeLock()
+        stopForeground(true)
+        stopSelf()
         mainHandler.post { mainActivity?.notifyFlutter("onStreamStopped") }
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "YT Stream", NotificationManager.IMPORTANCE_LOW)
-            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
+            val channel = NotificationChannel(
+                CHANNEL_ID, "YT Stream", NotificationManager.IMPORTANCE_LOW)
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                .createNotificationChannel(channel)
         }
     }
 
