@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
@@ -36,6 +37,7 @@ class StreamService : Service(), ConnectChecker {
         var mainActivity: MainActivity? = null
         const val CHANNEL_ID = "ytstream_channel"
         const val NOTIF_ID = 1
+        private const val TAG = "StreamService"
     }
 
     private var rtmpDisplay: RtmpDisplay? = null
@@ -63,6 +65,9 @@ class StreamService : Service(), ConnectChecker {
     private var lastImageX = 0.7f
     private var lastImageY = 0.05f
     private var isSingleAppShare = false
+
+    // Camera restart साठी — एकापेक्षा जास्त वेळा restart होऊ नये म्हणून flag
+    private var isCameraRestarting = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -108,6 +113,42 @@ class StreamService : Service(), ConnectChecker {
 
     private fun applyVoiceEffect(mode: String) {}
 
+    // ─── Camera Restart Logic ────────────────────────────────────────────────
+
+    /**
+     * Camera interrupt/freeze झाल्यावर हे call होतं (CameraOverlay च्या onCameraError मधून).
+     * 2 seconds wait करून camera restart करतो.
+     * isCameraRestarting flag मुळे multiple restarts होत नाहीत.
+     */
+    private fun onCameraInterrupted() {
+        mainHandler.post {
+            if (!cameraEnabled) return@post
+            if (isCameraRestarting) {
+                Log.d(TAG, "Camera restart already pending, skipping")
+                return@post
+            }
+            isCameraRestarting = true
+            Log.d(TAG, "Camera interrupted — will restart in 2s")
+
+            mainHandler.postDelayed({
+                if (cameraEnabled) {
+                    Log.d(TAG, "Restarting camera after interrupt...")
+                    stopCamera()
+                    mainHandler.postDelayed({
+                        if (cameraEnabled) {
+                            setupCamera()
+                        }
+                        isCameraRestarting = false
+                    }, 600)
+                } else {
+                    isCameraRestarting = false
+                }
+            }, 2000)
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+
     private fun setupCamera() {
         try {
             val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: run {
@@ -115,7 +156,6 @@ class StreamService : Service(), ConnectChecker {
                 return
             }
 
-            // आधीचा filter काढा
             val oldFilter = cameraFilter
             if (oldFilter != null) {
                 try { glInterface.removeFilter(oldFilter) } catch (_: Exception) {}
@@ -135,16 +175,22 @@ class StreamService : Service(), ConnectChecker {
 
             val useFront = cameraFacing == "front"
 
-            cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
-                val currentFilter = cameraFilter
-                if (currentFilter == null) { bitmap.recycle(); return@CameraOverlay }
-                // mainHandler नाही — processThread वरूनच directly GL filter update
-                // GL thread independent आहे mainThread पासून
-                try {
-                    if (cameraFilter != null) currentFilter.setImage(bitmap)
-                    else bitmap.recycle()
-                } catch (_: Exception) { bitmap.recycle() }
-            }
+            cameraOverlay = CameraOverlay(
+                context = applicationContext,
+                onFrame = { bitmap ->
+                    val currentFilter = cameraFilter
+                    if (currentFilter == null) { bitmap.recycle(); return@CameraOverlay }
+                    try {
+                        if (cameraFilter != null) currentFilter.setImage(bitmap)
+                        else bitmap.recycle()
+                    } catch (_: Exception) { bitmap.recycle() }
+                },
+                onCameraError = {
+                    // Camera freeze/disconnect झाला → auto restart
+                    Log.w(TAG, "Camera error callback received — triggering restart")
+                    onCameraInterrupted()
+                }
+            )
 
             cameraOverlay!!.start(useFront, savedOrientation == "portrait")
             notify("📷 Camera ON")
@@ -251,6 +297,7 @@ class StreamService : Service(), ConnectChecker {
                 mainHandler.post {
                     cameraEnabled = true
                     cameraFacing = "back"
+                    isCameraRestarting = false
                     stopCamera()
                     mainHandler.postDelayed({ setupCamera() }, 300)
                 }
@@ -260,6 +307,7 @@ class StreamService : Service(), ConnectChecker {
                 mainHandler.post {
                     cameraEnabled = true
                     cameraFacing = "front"
+                    isCameraRestarting = false
                     stopCamera()
                     mainHandler.postDelayed({ setupCamera() }, 300)
                 }
@@ -269,9 +317,11 @@ class StreamService : Service(), ConnectChecker {
                 mainHandler.post {
                     if (!cameraEnabled) {
                         cameraEnabled = true
+                        isCameraRestarting = false
                         setupCamera()
                     } else {
                         cameraEnabled = false
+                        isCameraRestarting = false
                         stopCamera()
                     }
                 }
@@ -280,6 +330,7 @@ class StreamService : Service(), ConnectChecker {
             "CAMERA_OFF" -> {
                 mainHandler.post {
                     cameraEnabled = false
+                    isCameraRestarting = false
                     stopCamera()
                 }
                 return START_NOT_STICKY
@@ -288,6 +339,7 @@ class StreamService : Service(), ConnectChecker {
                 cameraFacing = if (cameraFacing == "back") "front" else "back"
                 cameraEnabled = true
                 mainHandler.post {
+                    isCameraRestarting = false
                     stopCamera()
                     mainHandler.postDelayed({ setupCamera() }, 1200)
                 }
@@ -459,7 +511,6 @@ class StreamService : Service(), ConnectChecker {
     }
 
     override fun onDisconnect() {
-        // Pedro आपोआप reconnect करतो — stopSelf() नाही
         notify("⚠️ Disconnected - reconnecting...")
     }
 
