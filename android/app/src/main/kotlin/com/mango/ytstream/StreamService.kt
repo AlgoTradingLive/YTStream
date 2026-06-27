@@ -138,17 +138,16 @@ class StreamService : Service(), ConnectChecker {
             // SurfaceTexture approach — JPEG/Bitmap नाही
             // Camera2 → SurfaceTexture → GL filter directly
             cameraOverlay = CameraOverlay(
-                context = applicationContext,
-                onSurfaceTexture = { surfaceTexture ->
-                    mainHandler.post {
-                        try {
-                            if (cameraFilter != null) {
-                                filter.setImage(surfaceTexture)
-                            }
-                        } catch (_: Exception) {}
-                    }
-                }
-            )
+    context = applicationContext,
+    onFrame = { bitmap ->
+        mainHandler.post {
+            try {
+                if (cameraFilter != null) filter.setImage(bitmap)
+                else bitmap.recycle()
+            } catch (_: Exception) { bitmap.recycle() }
+        }
+    }
+)
 
             cameraOverlay!!.start(useFront, savedOrientation == "portrait")
             notify("📷 Camera ON")
