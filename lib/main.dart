@@ -242,7 +242,7 @@ class _StreamPageState extends State<StreamPage> {
     final key = _keyCtrl.text.trim();
     if (key.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: const Text('Stream Key enter karo!'), backgroundColor: red),
+        SnackBar(content: const Text('Enter Stream Key!'), backgroundColor: red),
       );
       return;
     }
@@ -444,7 +444,7 @@ class _StreamPageState extends State<StreamPage> {
                     style: TextStyle(color: text, fontSize: 13),
                     decoration: InputDecoration(
                       border: InputBorder.none,
-                      hintText: 'Stream मध्ये text दाखवा...',
+                      hintText: 'Add Text in Stream  ...',
                       hintStyle: TextStyle(color: subtext, fontSize: 12),
                     ),
                     onChanged: (v) => _overlayText = v,
@@ -533,7 +533,7 @@ class _StreamPageState extends State<StreamPage> {
                       color: _overlayImagePath.isNotEmpty ? red : subtext, size: 20),
                     const SizedBox(width: 8),
                     Text(
-                      _overlayImagePath.isNotEmpty ? 'Image selected ✓' : 'Gallery मधून निवडा',
+                      _overlayImagePath.isNotEmpty ? 'Image selected ✓' : 'Select from Gallery ',
                       style: TextStyle(color: _overlayImagePath.isNotEmpty ? red : subtext, fontSize: 12)),
                     if (_overlayImagePath.isNotEmpty) ...[
                       const SizedBox(width: 8),
@@ -561,7 +561,7 @@ class _StreamPageState extends State<StreamPage> {
                 child: Row(children: [
                   Icon(Icons.clear_all, color: subtext, size: 16),
                   const SizedBox(width: 4),
-                  Text('सर्व overlay clear करा', style: TextStyle(color: subtext, fontSize: 11)),
+                  Text('Clear All overlay text img etc..', style: TextStyle(color: subtext, fontSize: 11)),
                 ]),
               ),
             ],
@@ -583,11 +583,11 @@ class _StreamPageState extends State<StreamPage> {
             Text('Live Viewer Count', style: TextStyle(color: text, fontSize: 14, fontWeight: FontWeight.w600)),
           ]),
           const SizedBox(height: 4),
-          Text('YouTube API key आणि Video ID टाका', style: TextStyle(color: subtext, fontSize: 11)),
+          Text('Add YouTube API key And Video ID', style: TextStyle(color: subtext, fontSize: 11)),
           const SizedBox(height: 10),
           _inputField(_ytApiKeyCtrl, 'YouTube API Key', obscure: true),
           const SizedBox(height: 8),
-          _inputField(_videoIdCtrl, 'Video ID (Live stream चा)'),
+          _inputField(_videoIdCtrl, 'Video ID (Live stream )'),
           const SizedBox(height: 6),
           Text('Video ID: youtube.com/watch?v=VIDEO_ID_HERE', style: TextStyle(color: subtext, fontSize: 10)),
         ],
