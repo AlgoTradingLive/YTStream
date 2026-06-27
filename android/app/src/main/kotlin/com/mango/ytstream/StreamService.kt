@@ -304,13 +304,19 @@ class StreamService : Service(), ConnectChecker {
                 }
                 return START_NOT_STICKY
             }
+            "CAMERA_OFF" -> {
+                mainHandler.post {
+                    cameraEnabled = false
+                    stopCamera()
+                }
+                return START_NOT_STICKY
+            }
             "CAMERA_SWITCH" -> {
-                if (cameraEnabled) {
-                    cameraFacing = if (cameraFacing == "back") "front" else "back"
-                    mainHandler.post {
-                        stopCamera()
-                        mainHandler.postDelayed({ setupCamera() }, 800)
-                    }
+                cameraFacing = if (cameraFacing == "back") "front" else "back"
+                cameraEnabled = true
+                mainHandler.post {
+                    stopCamera()
+                    mainHandler.postDelayed({ setupCamera() }, 1200)
                 }
                 return START_NOT_STICKY
             }
@@ -415,7 +421,6 @@ class StreamService : Service(), ConnectChecker {
             val mix = MixAudioSource(mp)
             mixAudioSource = mix
             genericStream!!.changeAudioSource(mix)
-            genericStream!!.getStreamClient().setReTries(5)
             genericStream!!.startStream(url)
             mainHandler.postDelayed({
                 applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY)
@@ -447,7 +452,6 @@ class StreamService : Service(), ConnectChecker {
         if (!aOk) aOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
 
         if (vOk && aOk) {
-            rtmpDisplay!!.getStreamClient().setReTries(5)
             rtmpDisplay!!.startStream(url)
             mainHandler.postDelayed({
                 applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY)
