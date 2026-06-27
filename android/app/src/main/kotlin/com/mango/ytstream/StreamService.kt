@@ -296,6 +296,24 @@ class StreamService : Service(), ConnectChecker {
                 applyVoiceEffect(mode)
                 return START_NOT_STICKY
             }
+            "CAMERA_ON_BACK" -> {
+                mainHandler.post {
+                    cameraEnabled = true
+                    cameraFacing = "back"
+                    stopCamera()
+                    mainHandler.postDelayed({ setupCamera() }, 300)
+                }
+                return START_NOT_STICKY
+            }
+            "CAMERA_ON_FRONT" -> {
+                mainHandler.post {
+                    cameraEnabled = true
+                    cameraFacing = "front"
+                    stopCamera()
+                    mainHandler.postDelayed({ setupCamera() }, 300)
+                }
+                return START_NOT_STICKY
+            }
             "CAMERA_TOGGLE" -> {
                 mainHandler.post {
                     if (!cameraEnabled) {
