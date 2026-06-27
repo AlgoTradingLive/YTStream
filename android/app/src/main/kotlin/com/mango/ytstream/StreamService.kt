@@ -64,6 +64,17 @@ class StreamService : Service(), ConnectChecker {
     private var lastTextY = 0.05f
     private var lastImageX = 0.7f
     private var lastImageY = 0.05f
+    private var lastTextBold = false
+    private var lastTextSize = "medium"
+    private var lastTextColor = "white"
+    private var lastImageScale = "medium"
+
+    // Ticker
+    private var tickerText = ""
+    private var tickerFilter: TextObjectFilterRender? = null
+    private var tickerPositionX = 0f
+    private var tickerHandler: Handler? = null
+    private var tickerRunnable: Runnable? = null
     private var isSingleAppShare = false
     private var savedBitrate = 2_000_000 // default 2 Mbps
     private var savedScreenWidth = 0
@@ -202,12 +213,16 @@ class StreamService : Service(), ConnectChecker {
 
     private fun applyOverlay(
         overlayText: String, overlayImagePath: String,
-        textX: Float, textY: Float, imageX: Float, imageY: Float
+        textX: Float, textY: Float, imageX: Float, imageY: Float,
+        bold: Boolean = false, textSize: String = "medium",
+        textColor: String = "white", imageScale: String = "medium"
     ) {
         lastOverlayText = overlayText
         lastOverlayImagePath = overlayImagePath
         lastTextX = textX; lastTextY = textY
         lastImageX = imageX; lastImageY = imageY
+        lastTextBold = bold; lastTextSize = textSize
+        lastTextColor = textColor; lastImageScale = imageScale
 
         try {
             val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return
@@ -217,27 +232,106 @@ class StreamService : Service(), ConnectChecker {
             textFilter = null; imageFilter = null
 
             if (overlayText.isNotEmpty()) {
+                val fontSize = when (textSize) {
+                    "small" -> 32f
+                    "large" -> 64f
+                    else -> 48f
+                }
+                val color = when (textColor) {
+                    "yellow" -> Color.YELLOW
+                    "red" -> Color.RED
+                    "black" -> Color.BLACK
+                    else -> Color.WHITE
+                }
                 val tf = TextObjectFilterRender()
-                tf.setScale(35f, 10f)
+                val scaleW = when (textSize) { "small" -> 28f; "large" -> 45f; else -> 35f }
+                tf.setScale(scaleW, 12f)
                 tf.setPosition(textX * 100f, textY * 100f)
-                tf.setText(overlayText, 48f, Color.WHITE)
+                if (bold) {
+                    tf.setText(overlayText, fontSize, color, android.graphics.Typeface.DEFAULT_BOLD)
+                } else {
+                    tf.setText(overlayText, fontSize, color)
+                }
                 glInterface.addFilter(tf)
                 textFilter = tf
             }
 
             if (overlayImagePath.isNotEmpty()) {
-                val bitmap = BitmapFactory.decodeFile(overlayImagePath,
-                    BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 })
-                if (bitmap != null) {
+                val opts = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+                val rawBitmap = BitmapFactory.decodeFile(overlayImagePath, opts)
+                if (rawBitmap != null) {
+                    // Aspect ratio maintain करा — image फाटू नये म्हणून
+                    val streamW = savedScreenWidth.takeIf { it > 0 } ?: 1280
+                    val streamH = savedScreenHeight.takeIf { it > 0 } ?: 720
+                    val baseScale = when (imageScale) { "small" -> 15f; "large" -> 30f; else -> 20f }
+                    val imgAspect = rawBitmap.width.toFloat() / rawBitmap.height.toFloat()
+                    val streamAspect = streamW.toFloat() / streamH.toFloat()
+                    val scaleW: Float
+                    val scaleH: Float
+                    if (imgAspect > 1f) {
+                        scaleW = baseScale
+                        scaleH = baseScale / imgAspect * streamAspect
+                    } else {
+                        scaleH = baseScale
+                        scaleW = baseScale * imgAspect / streamAspect
+                    }
                     val sf = ImageObjectFilterRender()
-                    sf.setScale(20f, 20f)
+                    sf.setScale(scaleW, scaleH)
                     sf.setPosition(imageX * 100f, imageY * 100f)
-                    sf.setImage(bitmap)
+                    sf.setImage(rawBitmap)
                     glInterface.addFilter(sf)
                     imageFilter = sf
                 }
             }
         } catch (_: Exception) {}
+    }
+
+    // Ticker — manually scroll करतो Timer ने
+    private fun applyTicker(text: String, color: String = "white") {
+        if (text.isEmpty()) {
+            stopTicker()
+            return
+        }
+        val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return
+
+        tickerFilter?.let { try { glInterface.removeFilter(it) } catch (_: Exception) {} }
+        tickerFilter = null
+        stopTicker()
+
+        tickerText = text
+        val tf = TextObjectFilterRender()
+        val tickerColor = when (color) {
+            "yellow" -> Color.YELLOW; "red" -> Color.RED; else -> Color.WHITE
+        }
+        tf.setScale(60f, 8f)
+        tf.setPosition(100f, 88f) // start from right edge
+        tf.setText(text, 36f, tickerColor)
+        glInterface.addFilter(tf)
+        tickerFilter = tf
+        tickerPositionX = 100f
+
+        val handler = Handler(Looper.getMainLooper())
+        tickerHandler = handler
+        val runnable = object : Runnable {
+            override fun run() {
+                val filter = tickerFilter ?: return
+                tickerPositionX -= 0.4f
+                if (tickerPositionX < -65f) tickerPositionX = 100f
+                try { filter.setPosition(tickerPositionX, 88f) } catch (_: Exception) {}
+                handler.postDelayed(this, 33) // ~30fps
+            }
+        }
+        tickerRunnable = runnable
+        handler.postDelayed(runnable, 33)
+    }
+
+    private fun stopTicker() {
+        tickerRunnable?.let { tickerHandler?.removeCallbacks(it) }
+        tickerRunnable = null
+        tickerHandler = null
+        val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface
+        tickerFilter?.let { try { glInterface?.removeFilter(it) } catch (_: Exception) {} }
+        tickerFilter = null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -365,7 +459,21 @@ class StreamService : Service(), ConnectChecker {
                 val ty = intent.getFloatExtra("textY", 0.05f)
                 val ix = intent.getFloatExtra("imageX", 0.7f)
                 val iy = intent.getFloatExtra("imageY", 0.05f)
-                mainHandler.post { applyOverlay(text, imagePath, tx, ty, ix, iy) }
+                val bold = intent.getBooleanExtra("textBold", false)
+                val tSize = intent.getStringExtra("textSize") ?: "medium"
+                val tColor = intent.getStringExtra("textColor") ?: "white"
+                val iScale = intent.getStringExtra("imageScale") ?: "medium"
+                mainHandler.post { applyOverlay(text, imagePath, tx, ty, ix, iy, bold, tSize, tColor, iScale) }
+                return START_NOT_STICKY
+            }
+            "UPDATE_TICKER" -> {
+                val text = intent.getStringExtra("tickerText") ?: ""
+                val color = intent.getStringExtra("tickerColor") ?: "white"
+                mainHandler.post { applyTicker(text, color) }
+                return START_NOT_STICKY
+            }
+            "STOP_TICKER" -> {
+                mainHandler.post { stopTicker() }
                 return START_NOT_STICKY
             }
             else -> {
@@ -552,6 +660,7 @@ class StreamService : Service(), ConnectChecker {
     override fun onDestroy() {
         super.onDestroy()
         try { screenReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
+        stopTicker()
         stopCamera()
         try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
         try { if (genericStream?.isStreaming == true) genericStream?.stopStream() } catch (_: Exception) {}
@@ -561,6 +670,7 @@ class StreamService : Service(), ConnectChecker {
     private fun stopStreaming() {
         try { if (rtmpDisplay?.isStreaming == true) rtmpDisplay?.stopStream() } catch (_: Exception) {}
         try { if (genericStream?.isStreaming == true) genericStream?.stopStream() } catch (_: Exception) {}
+        stopTicker()
         stopCamera()
         releaseWakeLock()
         stopForeground(true)

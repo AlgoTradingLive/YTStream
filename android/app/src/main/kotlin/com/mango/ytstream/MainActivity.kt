@@ -69,8 +69,25 @@ class MainActivity : FlutterActivity() {
                         putExtra("textY", (call.argument("textY") as? Double)?.toFloat() ?: 0.05f)
                         putExtra("imageX", (call.argument("imageX") as? Double)?.toFloat() ?: 0.7f)
                         putExtra("imageY", (call.argument("imageY") as? Double)?.toFloat() ?: 0.05f)
+                        putExtra("textBold", call.argument("textBold") ?: false)
+                        putExtra("textSize", call.argument("textSize") ?: "medium")
+                        putExtra("textColor", call.argument("textColor") ?: "white")
+                        putExtra("imageScale", call.argument("imageScale") ?: "medium")
                     }
                     startService(i)
+                    result.success(null)
+                }
+                "updateTicker" -> {
+                    val i = Intent(this, StreamService::class.java).apply {
+                        action = "UPDATE_TICKER"
+                        putExtra("tickerText", call.argument("tickerText") ?: "")
+                        putExtra("tickerColor", call.argument("tickerColor") ?: "white")
+                    }
+                    startService(i)
+                    result.success(null)
+                }
+                "stopTicker" -> {
+                    startService(Intent(this, StreamService::class.java).apply { action = "STOP_TICKER" })
                     result.success(null)
                 }
                 "setVoiceMode" -> {
