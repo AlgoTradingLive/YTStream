@@ -10,7 +10,9 @@ import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -27,9 +29,9 @@ class FloatingButtonService : Service() {
     private var isMuted = false
     private var isMicMuted = false
 
-    // Camera state
-    private var isCamOn = false
-    private var isFront = false  // false = back, true = front
+    // 0 = OFF, 1 = Back ON, 2 = Front ON
+    private var camState = 0
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private lateinit var pauseBtn: TextView
     private lateinit var muteBtn: TextView
@@ -38,24 +40,11 @@ class FloatingButtonService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // Camera button label helper
-    // OFF  → "📷"         (purple)
-    // ON Back  → "📷B"   (green)
-    // ON Front → "📷F"   (blue)
     private fun updateCamBtn() {
-        when {
-            !isCamOn -> {
-                camBtn.text = "📷"
-                setBtnColor(camBtn, Color.argb(255, 80, 0, 150))
-            }
-            !isFront -> {
-                camBtn.text = "📷B"
-                setBtnColor(camBtn, Color.argb(255, 0, 130, 0))
-            }
-            else -> {
-                camBtn.text = "📷F"
-                setBtnColor(camBtn, Color.argb(255, 0, 100, 200))
-            }
+        when (camState) {
+            0 -> { camBtn.text = "📷"; setBtnColor(camBtn, Color.argb(255, 80, 0, 150)) }
+            1 -> { camBtn.text = "📷B"; setBtnColor(camBtn, Color.argb(255, 0, 130, 0)) }
+            2 -> { camBtn.text = "📷F"; setBtnColor(camBtn, Color.argb(255, 0, 100, 200)) }
         }
     }
 
@@ -160,31 +149,34 @@ class FloatingButtonService : Service() {
             }
         }
 
-        // Single tap:
-        //   OFF       → ON (back)   📷B
-        //   ON back   → ON (front)  📷F
-        //   ON front  → OFF         📷
+        // Tap cycle: OFF(📷) → Back(📷B) → Front(📷F) → OFF(📷)
         camBtn.setOnClickListener {
-            when {
-                !isCamOn -> {
-                    // OFF → ON back
-                    isCamOn = true
-                    isFront = false
+            // Button disable करा duplicate tap टाळायला
+            camBtn.isEnabled = false
+
+            camState = (camState + 1) % 3
+            updateCamBtn()
+
+            when (camState) {
+                0 -> {
+                    // OFF
+                    send("CAMERA_OFF")
+                }
+                1 -> {
+                    // Back ON
                     send("CAMERA_ON_BACK")
                 }
-                !isFront -> {
-                    // ON back → ON front (switch, camera stays ON)
-                    isFront = true
+                2 -> {
+                    // Front ON — switch (camera आधीच ON आहे)
                     send("CAMERA_SWITCH")
                 }
-                else -> {
-                    // ON front → OFF
-                    isCamOn = false
-                    isFront = false
-                    send("CAMERA_TOGGLE")  // OFF करा
-                }
             }
-            updateCamBtn()
+
+            // 1.5 seconds नंतर button re-enable करा
+            // Camera session change होायला वेळ लागतो
+            mainHandler.postDelayed({
+                camBtn.isEnabled = true
+            }, 1500)
         }
 
         stopBtn.setOnClickListener {
