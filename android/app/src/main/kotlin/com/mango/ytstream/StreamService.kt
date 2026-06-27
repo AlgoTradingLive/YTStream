@@ -483,13 +483,22 @@ class StreamService : Service(), ConnectChecker {
         mainHandler.post { mainActivity?.notifyFlutter("onStreamStarted") }
     }
     override fun onConnectionFailed(reason: String) {
-        notify("Failed: $reason"); releaseWakeLock(); stopSelf()
-    }
+    notify("⚠️ Failed: $reason")
+    // 10 seconds नंतर बघू — Pedro retry करतो
+    mainHandler.postDelayed({
+        val isStillStreaming = rtmpDisplay?.isStreaming == true || genericStream?.isStreaming == true
+        if (!isStillStreaming) {
+            releaseWakeLock(); stopSelf()
+        }
+    }, 10_000)
+}
     override fun onNewBitrate(bitrate: Long) {
         mainHandler.post { mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate / 1000}") }
     }
     override fun onDisconnect() {
-        notify("Disconnected"); releaseWakeLock(); stopSelf()
+    notify("⚠️ Disconnected - reconnecting...")
+    // stopSelf() नाही — Pedro आपोआप reconnect करतो
+    }
     }
     override fun onAuthError() { notify("Auth error") }
     override fun onAuthSuccess() {}
