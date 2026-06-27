@@ -26,13 +26,38 @@ class FloatingButtonService : Service() {
     private var isPaused = false
     private var isMuted = false
     private var isMicMuted = false
+
+    // Camera state
     private var isCamOn = false
+    private var isFront = false  // false = back, true = front
+
     private lateinit var pauseBtn: TextView
     private lateinit var muteBtn: TextView
     private lateinit var micBtn: TextView
     private lateinit var camBtn: TextView
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    // Camera button label helper
+    // OFF  → "📷"         (purple)
+    // ON Back  → "📷B"   (green)
+    // ON Front → "📷F"   (blue)
+    private fun updateCamBtn() {
+        when {
+            !isCamOn -> {
+                camBtn.text = "📷"
+                setBtnColor(camBtn, Color.argb(255, 80, 0, 150))
+            }
+            !isFront -> {
+                camBtn.text = "📷B"
+                setBtnColor(camBtn, Color.argb(255, 0, 130, 0))
+            }
+            else -> {
+                camBtn.text = "📷F"
+                setBtnColor(camBtn, Color.argb(255, 0, 100, 200))
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -49,9 +74,9 @@ class FloatingButtonService : Service() {
 
         val logoView = makeLogoView()
         pauseBtn = makeBtn("⏸", Color.argb(255, 200, 120, 0))
-        muteBtn = makeBtn("🔊", Color.argb(255, 0, 100, 180))
-        micBtn = makeBtn("🎤", Color.argb(255, 0, 130, 80))
-        camBtn = makeBtn("📷", Color.argb(255, 80, 0, 150))
+        muteBtn  = makeBtn("🔊", Color.argb(255, 0, 100, 180))
+        micBtn   = makeBtn("🎤", Color.argb(255, 0, 130, 80))
+        camBtn   = makeBtn("📷", Color.argb(255, 80, 0, 150))
         val stopBtn = makeBtn("⏹", Color.argb(255, 200, 0, 0))
 
         container.addView(logoView)
@@ -108,7 +133,8 @@ class FloatingButtonService : Service() {
                 setBtnColor(pauseBtn, Color.argb(255, 0, 160, 0))
             } else {
                 send("RESUME"); isPaused = false; isMuted = false; isMicMuted = false
-                pauseBtn.text = "⏸"; setBtnColor(pauseBtn, Color.argb(255, 200, 120, 0))
+                pauseBtn.text = "⏸"
+                setBtnColor(pauseBtn, Color.argb(255, 200, 120, 0))
                 muteBtn.text = "🔊"; setBtnColor(muteBtn, Color.argb(255, 0, 100, 180))
                 micBtn.text = "🎤"; setBtnColor(micBtn, Color.argb(255, 0, 130, 80))
             }
@@ -134,18 +160,31 @@ class FloatingButtonService : Service() {
             }
         }
 
+        // Single tap:
+        //   OFF       → ON (back)   📷B
+        //   ON back   → ON (front)  📷F
+        //   ON front  → OFF         📷
         camBtn.setOnClickListener {
-            if (!isCamOn) {
-                send("CAMERA_TOGGLE"); isCamOn = true
-                camBtn.text = "📷"; setBtnColor(camBtn, Color.argb(255, 0, 100, 200))
-            } else {
-                send("CAMERA_TOGGLE"); isCamOn = false
-                camBtn.text = "📷🚫"; setBtnColor(camBtn, Color.argb(255, 80, 0, 150))
+            when {
+                !isCamOn -> {
+                    // OFF → ON back
+                    isCamOn = true
+                    isFront = false
+                    send("CAMERA_ON_BACK")
+                }
+                !isFront -> {
+                    // ON back → ON front (switch, camera stays ON)
+                    isFront = true
+                    send("CAMERA_SWITCH")
+                }
+                else -> {
+                    // ON front → OFF
+                    isCamOn = false
+                    isFront = false
+                    send("CAMERA_TOGGLE")  // OFF करा
+                }
             }
-        }
-
-        camBtn.setOnLongClickListener {
-            send("CAMERA_SWITCH"); true
+            updateCamBtn()
         }
 
         stopBtn.setOnClickListener {
@@ -174,10 +213,10 @@ class FloatingButtonService : Service() {
     }
 
     private fun send(action: String) {
-    val intent = Intent(applicationContext, StreamService::class.java)
-    intent.action = action   // ← .apply नाही, थेट set करा
-    startService(intent)
-}
+        val intent = Intent(applicationContext, StreamService::class.java)
+        intent.action = action
+        startService(intent)
+    }
 
     private fun makeBtn(text: String, color: Int) = TextView(this).apply {
         this.text = text
@@ -201,6 +240,8 @@ class FloatingButtonService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        try { if (floatingView != null) windowManager!!.removeView(floatingView) } catch (_: Exception) {}
+        try {
+            if (floatingView != null) windowManager!!.removeView(floatingView)
+        } catch (_: Exception) {}
     }
 }
