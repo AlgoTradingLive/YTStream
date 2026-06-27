@@ -62,7 +62,6 @@ class StreamService : Service(), ConnectChecker {
     private var lastTextY = 0.05f
     private var lastImageX = 0.7f
     private var lastImageY = 0.05f
-    private var lastFrameTime = 0L
     private var isSingleAppShare = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -109,14 +108,6 @@ class StreamService : Service(), ConnectChecker {
 
     private fun applyVoiceEffect(mode: String) {}
 
-    private fun getCameraFrameInterval(): Long {
-        return when {
-            isSingleAppShare -> 500L
-            cameraMode == "split" -> 300L
-            else -> 150L
-        }
-    }
-
     private fun setupCamera() {
         try {
             val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: run {
@@ -124,6 +115,7 @@ class StreamService : Service(), ConnectChecker {
                 return
             }
 
+            // आधीचा filter काढा
             val oldFilter = cameraFilter
             if (oldFilter != null) {
                 try { glInterface.removeFilter(oldFilter) } catch (_: Exception) {}
@@ -132,46 +124,31 @@ class StreamService : Service(), ConnectChecker {
             cameraOverlay?.stop()
             cameraOverlay = null
 
-            Thread.sleep(100)
-
             val filter = ImageObjectFilterRender()
             when (cameraMode) {
-                "pip" -> { filter.setScale(25f, 25f); filter.setPosition(72f, 70f) }
+                "pip"   -> { filter.setScale(25f, 25f); filter.setPosition(72f, 70f) }
                 "split" -> { filter.setScale(98f, 28f); filter.setPosition(1f, 71f) }
-                else -> { filter.setScale(25f, 25f); filter.setPosition(72f, 70f) }
+                else    -> { filter.setScale(25f, 25f); filter.setPosition(72f, 70f) }
             }
             glInterface.addFilter(filter)
             cameraFilter = filter
 
             val useFront = cameraFacing == "front"
-            val frameInterval = getCameraFrameInterval()
 
-            cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
-                val now = System.currentTimeMillis()
-                if (now - lastFrameTime < frameInterval) {
-                    bitmap.recycle()
-                    return@CameraOverlay
-                }
-                lastFrameTime = now
-
-                val currentFilter = cameraFilter
-                if (currentFilter == null) {
-                    bitmap.recycle()
-                    return@CameraOverlay
-                }
-
-                mainHandler.post {
-                    try {
-                        if (cameraFilter != null) {
-                            currentFilter.setImage(bitmap)
-                        } else {
-                            bitmap.recycle()
-                        }
-                    } catch (_: Exception) {
-                        bitmap.recycle()
+            // SurfaceTexture approach — JPEG/Bitmap नाही
+            // Camera2 → SurfaceTexture → GL filter directly
+            cameraOverlay = CameraOverlay(
+                context = applicationContext,
+                onSurfaceTexture = { surfaceTexture ->
+                    mainHandler.post {
+                        try {
+                            if (cameraFilter != null) {
+                                filter.setImage(surfaceTexture)
+                            }
+                        } catch (_: Exception) {}
                     }
                 }
-            }
+            )
 
             cameraOverlay!!.start(useFront, savedOrientation == "portrait")
             notify("📷 Camera ON")
