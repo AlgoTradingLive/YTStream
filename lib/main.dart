@@ -71,27 +71,30 @@ class _StreamPageState extends State<StreamPage> {
   bool _cameraEnabled = false;
   String _cameraFacing = 'back';
   String _cameraMode = 'pip';
-  int _bitrate = 2000; // kbps
+  int _bitrate = 2000;
+
+  // Advanced panel
+  bool _showAdvanced = false;
 
   // Overlay
   String _overlayText = '';
   String _overlayImagePath = '';
-  String _tickerText = '';
   bool _showOverlayPanel = false;
   final _overlayTextCtrl = TextEditingController();
   final _tickerCtrl = TextEditingController();
 
-  // Stream timer
+  // Timer
   Timer? _timer;
   int _seconds = 0;
 
-  // Live viewer count
+  // Viewer count
   int _viewerCount = 0;
   Timer? _viewerTimer;
   final _ytApiKeyCtrl = TextEditingController();
   final _videoIdCtrl = TextEditingController();
   String _ytApiKey = '';
   String _videoId = '';
+  bool _showViewerPanel = false;
 
   Color get bg => widget.isDark ? const Color(0xFF0D0D0D) : const Color(0xFFF5F5F5);
   Color get card => widget.isDark ? const Color(0xFF161B22) : Colors.white;
@@ -150,7 +153,6 @@ class _StreamPageState extends State<StreamPage> {
       case 'onStreamError':
         final msg = call.arguments ?? 'Error';
         setState(() { _isLoading = false; _status = msg; });
-        // Pause/resume messages → streaming state बदलू नको
         if (msg != '⏸ Paused' && msg != '🔇 Muted' && !msg.toString().startsWith('📷')) {
           setState(() => _isStreaming = false);
           _stopTimer();
@@ -168,12 +170,10 @@ class _StreamPageState extends State<StreamPage> {
     }
   }
 
-  // ── Timer ────────────────────────────────────────────────────────────────
+  // Timer
   void _startTimer() {
     _seconds = 0;
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() => _seconds++);
-    });
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => setState(() => _seconds++));
   }
 
   void _stopTimer() {
@@ -190,7 +190,7 @@ class _StreamPageState extends State<StreamPage> {
     return '${m.toString().padLeft(2,'0')}:${s.toString().padLeft(2,'0')}';
   }
 
-  // ── Viewer Count (YouTube Data API v3) ──────────────────────────────────
+  // Viewer count
   void _startViewerFetch() {
     if (_ytApiKey.isEmpty || _videoId.isEmpty) return;
     _fetchViewers();
@@ -210,15 +210,12 @@ class _StreamPageState extends State<StreamPage> {
       final req = await HttpClient().getUrl(Uri.parse(url));
       final res = await req.close();
       final body = await res.transform(const SystemEncoding().decoder).join();
-      // concurrent viewers parse करणे
       final match = RegExp(r'"concurrentViewers":"(\d+)"').firstMatch(body);
-      if (match != null) {
-        setState(() => _viewerCount = int.tryParse(match.group(1)!) ?? 0);
-      }
+      if (match != null) setState(() => _viewerCount = int.tryParse(match.group(1)!) ?? 0);
     } catch (_) {}
   }
 
-  // ── Overlay ──────────────────────────────────────────────────────────────
+  // Overlay
   void _sendOverlay() {
     platform.invokeMethod('updateOverlay', {
       'overlayText': _overlayText,
@@ -237,12 +234,12 @@ class _StreamPageState extends State<StreamPage> {
     }
   }
 
-  // ── Start / Stop ─────────────────────────────────────────────────────────
+  // Start / Stop
   Future<void> _start() async {
     final key = _keyCtrl.text.trim();
     if (key.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: const Text('Enter Stream Key!'), backgroundColor: red),
+        SnackBar(content: const Text('Please enter Stream Key!'), backgroundColor: red),
       );
       return;
     }
@@ -259,7 +256,7 @@ class _StreamPageState extends State<StreamPage> {
         'cameraEnabled': _cameraEnabled,
         'cameraFacing': _cameraFacing,
         'cameraMode': _cameraMode,
-        'bitrate': _bitrate * 1000, // kbps → bps
+        'bitrate': _bitrate * 1000,
         'overlayText': _overlayText,
         'overlayImagePath': _overlayImagePath,
       });
@@ -292,6 +289,7 @@ class _StreamPageState extends State<StreamPage> {
   }
 
   // ── Widgets ──────────────────────────────────────────────────────────────
+
   Widget _card({required Widget child, Color? color, EdgeInsets? padding}) {
     return Container(
       padding: padding ?? const EdgeInsets.all(14),
@@ -329,273 +327,300 @@ class _StreamPageState extends State<StreamPage> {
     );
   }
 
-  // Bitrate selector
-  Widget _bitrateSection() {
-    final options = [1000, 2000, 4000, 6000];
-    final labels = ['1 Mbps', '2 Mbps', '4 Mbps', '6 Mbps'];
-    final subs = ['Low', 'Medium', 'High', 'Ultra'];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Stream Quality', style: TextStyle(color: subtext, fontSize: 12, fontWeight: FontWeight.w500)),
-        const SizedBox(height: 6),
-        Row(
-          children: List.generate(options.length, (i) {
-            final sel = _bitrate == options[i];
-            return Expanded(
-              child: GestureDetector(
-                onTap: _isStreaming ? null : () => setState(() => _bitrate = options[i]),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  margin: EdgeInsets.only(right: i < options.length - 1 ? 8 : 0),
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    color: sel ? red : card,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: sel ? red : border),
-                  ),
-                  child: Column(children: [
-                    Text(labels[i], style: TextStyle(color: sel ? Colors.white : text, fontSize: 11, fontWeight: FontWeight.w600)),
-                    Text(subs[i], style: TextStyle(color: sel ? Colors.white70 : subtext, fontSize: 9)),
-                  ]),
-                ),
-              ),
-            );
-          }),
-        ),
-      ],
-    );
-  }
-
-  // Live stats bar (timer + viewers) — streaming मध्ये दाखव
   Widget _liveStatsBar() {
     return _card(
       color: widget.isDark ? const Color(0xFF1A0000) : const Color(0xFFFFF0F0),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Row(
-        children: [
-          // Red dot
-          Container(width: 8, height: 8,
-            decoration: BoxDecoration(color: red, shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: red.withOpacity(0.6), blurRadius: 6)])),
-          const SizedBox(width: 8),
-          Text('LIVE', style: TextStyle(color: red, fontSize: 12, fontWeight: FontWeight.bold)),
-          const SizedBox(width: 12),
-          // Timer
-          Icon(Icons.timer_outlined, color: subtext, size: 14),
+      child: Row(children: [
+        Container(width: 8, height: 8,
+          decoration: BoxDecoration(color: red, shape: BoxShape.circle,
+            boxShadow: [BoxShadow(color: red.withOpacity(0.6), blurRadius: 6)])),
+        const SizedBox(width: 8),
+        Text('LIVE', style: TextStyle(color: red, fontSize: 12, fontWeight: FontWeight.bold)),
+        const SizedBox(width: 12),
+        Icon(Icons.timer_outlined, color: subtext, size: 14),
+        const SizedBox(width: 4),
+        Text(_timerStr, style: TextStyle(color: text, fontSize: 13, fontWeight: FontWeight.w500)),
+        const Spacer(),
+        if (_viewerCount > 0) ...[
+          Icon(Icons.remove_red_eye_outlined, color: subtext, size: 14),
           const SizedBox(width: 4),
-          Text(_timerStr, style: TextStyle(color: text, fontSize: 13, fontWeight: FontWeight.w500)),
-          const Spacer(),
-          // Viewer count
-          if (_viewerCount > 0) ...[
-            Icon(Icons.remove_red_eye_outlined, color: subtext, size: 14),
-            const SizedBox(width: 4),
-            Text('$_viewerCount', style: TextStyle(color: text, fontSize: 13, fontWeight: FontWeight.w500)),
-          ] else if (_ytApiKey.isNotEmpty && _videoId.isNotEmpty) ...[
-            Icon(Icons.remove_red_eye_outlined, color: subtext, size: 14),
-            const SizedBox(width: 4),
-            Text('—', style: TextStyle(color: subtext, fontSize: 13)),
-          ],
-          // Bitrate status
+          Text('$_viewerCount', style: TextStyle(color: text, fontSize: 13, fontWeight: FontWeight.w500)),
           const SizedBox(width: 12),
-          Text(_status, style: TextStyle(color: subtext, fontSize: 11)),
         ],
-      ),
+        Text(_status, style: TextStyle(color: subtext, fontSize: 11)),
+      ]),
     );
   }
 
-  // Overlay panel
-  Widget _overlayPanel() {
-    return _card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          GestureDetector(
-            onTap: () => setState(() => _showOverlayPanel = !_showOverlayPanel),
-            child: Row(
+  Widget _sectionLabel(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(label, style: TextStyle(color: subtext, fontSize: 12, fontWeight: FontWeight.w500)),
+    );
+  }
+
+  // Advanced section
+  Widget _advancedSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Header tap to expand
+        GestureDetector(
+          onTap: () => setState(() => _showAdvanced = !_showAdvanced),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+            decoration: BoxDecoration(
+              color: card,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _showAdvanced ? red.withOpacity(0.5) : border),
+            ),
+            child: Row(children: [
+              Icon(Icons.tune_rounded, color: _showAdvanced ? red : subtext, size: 18),
+              const SizedBox(width: 10),
+              Text('Advanced Settings', style: TextStyle(
+                color: _showAdvanced ? red : text,
+                fontSize: 14, fontWeight: FontWeight.w600)),
+              const Spacer(),
+              Text('Optional', style: TextStyle(color: subtext, fontSize: 11)),
+              const SizedBox(width: 6),
+              Icon(_showAdvanced ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                color: subtext, size: 20),
+            ]),
+          ),
+        ),
+
+        if (_showAdvanced) ...[
+          const SizedBox(height: 14),
+
+          // 1. Camera
+          _card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.layers_outlined, color: _showOverlayPanel ? red : subtext, size: 20),
-                const SizedBox(width: 8),
-                Text('Overlay', style: TextStyle(color: text, fontSize: 14, fontWeight: FontWeight.w600)),
-                const Spacer(),
-                Icon(_showOverlayPanel ? Icons.expand_less : Icons.expand_more, color: subtext),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  Row(children: [
+                    Icon(Icons.videocam_rounded, color: _cameraEnabled ? red : subtext, size: 20),
+                    const SizedBox(width: 8),
+                    Text('Camera', style: TextStyle(color: text, fontSize: 14, fontWeight: FontWeight.w600)),
+                  ]),
+                  Switch(
+                    value: _cameraEnabled,
+                    onChanged: _isStreaming ? null : (v) => setState(() => _cameraEnabled = v),
+                    activeColor: red,
+                  ),
+                ]),
+                if (_cameraEnabled) ...[
+                  const SizedBox(height: 12),
+                  _sectionLabel('Mode'),
+                  Row(children: [
+                    _selectBtn('pip', _cameraMode, '🎮', 'PIP', 'Corner overlay', (v) => _cameraMode = v),
+                    const SizedBox(width: 10),
+                    _selectBtn('split', _cameraMode, '📱', 'Split', '70/30 view', (v) => _cameraMode = v),
+                  ]),
+                  const SizedBox(height: 12),
+                  _sectionLabel('Camera'),
+                  Row(children: [
+                    _selectBtn('back', _cameraFacing, '📷', 'Back', 'Main camera', (v) => _cameraFacing = v),
+                    const SizedBox(width: 10),
+                    _selectBtn('front', _cameraFacing, '🤳', 'Front', 'Selfie camera', (v) => _cameraFacing = v),
+                  ]),
+                ],
               ],
             ),
           ),
+          const SizedBox(height: 12),
 
-          if (_showOverlayPanel) ...[
-            const SizedBox(height: 14),
-
-            // Text overlay
-            Text('Text', style: TextStyle(color: subtext, fontSize: 12)),
-            const SizedBox(height: 6),
-            Row(children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: widget.isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: border),
-                  ),
-                  child: TextField(
-                    controller: _overlayTextCtrl,
-                    style: TextStyle(color: text, fontSize: 13),
-                    decoration: InputDecoration(
-                      border: InputBorder.none,
-                      hintText: 'Add Text in Stream  ...',
-                      hintStyle: TextStyle(color: subtext, fontSize: 12),
-                    ),
-                    onChanged: (v) => _overlayText = v,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () {
-                  setState(() => _overlayText = _overlayTextCtrl.text.trim());
-                  if (_isStreaming) _sendOverlay();
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: red, borderRadius: BorderRadius.circular(8)),
-                  child: const Icon(Icons.check, color: Colors.white, size: 18),
-                ),
-              ),
-            ]),
-
-            const SizedBox(height: 12),
-
-            // Ticker
-            Text('Ticker (Scrolling Text)', style: TextStyle(color: subtext, fontSize: 12)),
-            const SizedBox(height: 6),
-            Row(children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: widget.isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: border),
-                  ),
-                  child: TextField(
-                    controller: _tickerCtrl,
-                    style: TextStyle(color: text, fontSize: 13),
-                    decoration: InputDecoration(
-                      border: InputBorder.none,
-                      hintText: 'Breaking News: ...',
-                      hintStyle: TextStyle(color: subtext, fontSize: 12),
-                    ),
-                    onChanged: (v) => _tickerText = v,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () {
-                  // Ticker text overlay म्हणून पाठव (खाली position)
-                  platform.invokeMethod('updateOverlay', {
-                    'overlayText': _tickerCtrl.text.trim(),
-                    'overlayImagePath': _overlayImagePath,
-                    'textX': 0.0, 'textY': 0.85,
-                    'imageX': 0.7, 'imageY': 0.05,
-                  });
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: red, borderRadius: BorderRadius.circular(8)),
-                  child: const Icon(Icons.send, color: Colors.white, size: 18),
-                ),
-              ),
-            ]),
-
-            const SizedBox(height: 12),
-
-            // Image overlay
-            Text('Image / Logo', style: TextStyle(color: subtext, fontSize: 12)),
-            const SizedBox(height: 6),
-            GestureDetector(
-              onTap: _pickImage,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: widget.isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _overlayImagePath.isNotEmpty ? red : border),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      _overlayImagePath.isNotEmpty ? Icons.image : Icons.add_photo_alternate_outlined,
-                      color: _overlayImagePath.isNotEmpty ? red : subtext, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      _overlayImagePath.isNotEmpty ? 'Image selected ✓' : 'Select from Gallery ',
-                      style: TextStyle(color: _overlayImagePath.isNotEmpty ? red : subtext, fontSize: 12)),
-                    if (_overlayImagePath.isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: () {
-                          setState(() => _overlayImagePath = '');
-                          if (_isStreaming) _sendOverlay();
-                        },
-                        child: Icon(Icons.close, color: subtext, size: 16),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-
-            // Clear all overlay
-            if (_overlayText.isNotEmpty || _overlayImagePath.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              GestureDetector(
-                onTap: () {
-                  setState(() { _overlayText = ''; _overlayImagePath = ''; _overlayTextCtrl.clear(); });
-                  if (_isStreaming) _sendOverlay();
-                },
-                child: Row(children: [
-                  Icon(Icons.clear_all, color: subtext, size: 16),
-                  const SizedBox(width: 4),
-                  Text('Clear All overlay text img etc..', style: TextStyle(color: subtext, fontSize: 11)),
+          // 2. Stream Quality
+          _card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Icon(Icons.high_quality_outlined, color: subtext, size: 20),
+                  const SizedBox(width: 8),
+                  Text('Stream Quality', style: TextStyle(color: text, fontSize: 14, fontWeight: FontWeight.w600)),
                 ]),
-              ),
-            ],
-          ],
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    [1000, '1 Mbps', 'Low'],
+                    [2000, '2 Mbps', 'Medium'],
+                    [4000, '4 Mbps', 'High'],
+                    [6000, '6 Mbps', 'Ultra'],
+                  ].asMap().entries.map((e) {
+                    final i = e.key;
+                    final opt = e.value;
+                    final val = opt[0] as int;
+                    final label = opt[1] as String;
+                    final sub = opt[2] as String;
+                    final sel = _bitrate == val;
+                    return Expanded(
+                      child: GestureDetector(
+                        onTap: _isStreaming ? null : () => setState(() => _bitrate = val),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          margin: EdgeInsets.only(right: i < 3 ? 8 : 0),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: sel ? red : card,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: sel ? red : border),
+                          ),
+                          child: Column(children: [
+                            Text(label, style: TextStyle(
+                              color: sel ? Colors.white : text,
+                              fontSize: 11, fontWeight: FontWeight.w600)),
+                            Text(sub, style: TextStyle(
+                              color: sel ? Colors.white70 : subtext, fontSize: 9)),
+                          ]),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // 3. Overlay
+          _card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                GestureDetector(
+                  onTap: () => setState(() => _showOverlayPanel = !_showOverlayPanel),
+                  child: Row(children: [
+                    Icon(Icons.layers_outlined, color: _showOverlayPanel ? red : subtext, size: 20),
+                    const SizedBox(width: 8),
+                    Text('Overlay', style: TextStyle(color: text, fontSize: 14, fontWeight: FontWeight.w600)),
+                    const Spacer(),
+                    Icon(_showOverlayPanel ? Icons.expand_less : Icons.expand_more, color: subtext),
+                  ]),
+                ),
+                if (_showOverlayPanel) ...[
+                  const SizedBox(height: 14),
+
+                  // Text
+                  _sectionLabel('Text Overlay'),
+                  Row(children: [
+                    Expanded(child: _inputField(_overlayTextCtrl, 'Enter text to show on stream', onChanged: (v) => _overlayText = v)),
+                    const SizedBox(width: 8),
+                    _actionBtn(Icons.check, () {
+                      setState(() => _overlayText = _overlayTextCtrl.text.trim());
+                      if (_isStreaming) _sendOverlay();
+                    }),
+                  ]),
+                  const SizedBox(height: 12),
+
+                  // Ticker
+                  _sectionLabel('Ticker (Bottom scrolling text)'),
+                  Row(children: [
+                    Expanded(child: _inputField(_tickerCtrl, 'Breaking News: ...')),
+                    const SizedBox(width: 8),
+                    _actionBtn(Icons.send, () {
+                      platform.invokeMethod('updateOverlay', {
+                        'overlayText': _tickerCtrl.text.trim(),
+                        'overlayImagePath': _overlayImagePath,
+                        'textX': 0.0, 'textY': 0.88,
+                        'imageX': 0.7, 'imageY': 0.05,
+                      });
+                    }),
+                  ]),
+                  const SizedBox(height: 12),
+
+                  // Image
+                  _sectionLabel('Image / Logo'),
+                  GestureDetector(
+                    onTap: _pickImage,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: widget.isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: _overlayImagePath.isNotEmpty ? red : border),
+                      ),
+                      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Icon(
+                          _overlayImagePath.isNotEmpty ? Icons.image : Icons.add_photo_alternate_outlined,
+                          color: _overlayImagePath.isNotEmpty ? red : subtext, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          _overlayImagePath.isNotEmpty ? 'Image selected ✓' : 'Pick from Gallery',
+                          style: TextStyle(color: _overlayImagePath.isNotEmpty ? red : subtext, fontSize: 12)),
+                        if (_overlayImagePath.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () {
+                              setState(() => _overlayImagePath = '');
+                              if (_isStreaming) _sendOverlay();
+                            },
+                            child: Icon(Icons.close, color: subtext, size: 16)),
+                        ],
+                      ]),
+                    ),
+                  ),
+
+                  if (_overlayText.isNotEmpty || _overlayImagePath.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _overlayText = '';
+                          _overlayImagePath = '';
+                          _overlayTextCtrl.clear();
+                        });
+                        if (_isStreaming) _sendOverlay();
+                      },
+                      child: Row(children: [
+                        Icon(Icons.clear_all, color: subtext, size: 16),
+                        const SizedBox(width: 4),
+                        Text('Clear all overlays', style: TextStyle(color: subtext, fontSize: 11)),
+                      ]),
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // 4. Live Viewer Count
+          _card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                GestureDetector(
+                  onTap: () => setState(() => _showViewerPanel = !_showViewerPanel),
+                  child: Row(children: [
+                    Icon(Icons.people_outline, color: _showViewerPanel ? red : subtext, size: 20),
+                    const SizedBox(width: 8),
+                    Text('Live Viewer Count', style: TextStyle(color: text, fontSize: 14, fontWeight: FontWeight.w600)),
+                    const Spacer(),
+                    Icon(_showViewerPanel ? Icons.expand_less : Icons.expand_more, color: subtext),
+                  ]),
+                ),
+                if (_showViewerPanel) ...[
+                  const SizedBox(height: 12),
+                  Text('Requires YouTube Data API v3 key', style: TextStyle(color: subtext, fontSize: 11)),
+                  const SizedBox(height: 10),
+                  _inputField(_ytApiKeyCtrl, 'YouTube API Key', obscure: true),
+                  const SizedBox(height: 8),
+                  _inputField(_videoIdCtrl, 'Video ID  (youtube.com/watch?v=VIDEO_ID)'),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
         ],
-      ),
+      ],
     );
   }
 
-  // YouTube API settings
-  Widget _ytApiSection() {
-    return _card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            Icon(Icons.people_outline, color: subtext, size: 20),
-            const SizedBox(width: 8),
-            Text('Live Viewer Count', style: TextStyle(color: text, fontSize: 14, fontWeight: FontWeight.w600)),
-          ]),
-          const SizedBox(height: 4),
-          Text('Add YouTube API key And Video ID', style: TextStyle(color: subtext, fontSize: 11)),
-          const SizedBox(height: 10),
-          _inputField(_ytApiKeyCtrl, 'YouTube API Key', obscure: true),
-          const SizedBox(height: 8),
-          _inputField(_videoIdCtrl, 'Video ID (Live stream )'),
-          const SizedBox(height: 6),
-          Text('Video ID: youtube.com/watch?v=VIDEO_ID_HERE', style: TextStyle(color: subtext, fontSize: 10)),
-        ],
-      ),
-    );
-  }
-
-  Widget _inputField(TextEditingController ctrl, String hint, {bool obscure = false}) {
+  Widget _inputField(TextEditingController ctrl, String hint,
+      {bool obscure = false, Function(String)? onChanged}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
@@ -607,11 +632,23 @@ class _StreamPageState extends State<StreamPage> {
         controller: ctrl,
         obscureText: obscure,
         style: TextStyle(color: text, fontSize: 13),
+        onChanged: onChanged,
         decoration: InputDecoration(
           border: InputBorder.none,
           hintText: hint,
           hintStyle: TextStyle(color: subtext, fontSize: 12),
         ),
+      ),
+    );
+  }
+
+  Widget _actionBtn(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: red, borderRadius: BorderRadius.circular(8)),
+        child: Icon(icon, color: Colors.white, size: 18),
       ),
     );
   }
@@ -659,32 +696,27 @@ class _StreamPageState extends State<StreamPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
 
-            // ── Live Stats Bar (streaming असताना) ──
-            if (_isStreaming) ...[
-              _liveStatsBar(),
-              const SizedBox(height: 14),
-            ],
-
-            // ── Status card (streaming नसताना) ──
-            if (!_isStreaming)
+            // 1. Live stats / Status
+            if (_isStreaming)
+              _liveStatsBar()
+            else
               _card(
                 child: Row(children: [
                   Container(width: 10, height: 10,
                     decoration: BoxDecoration(color: green, shape: BoxShape.circle)),
                   const SizedBox(width: 10),
                   if (_isLoading) ...[
-                    SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: red)),
+                    SizedBox(width: 14, height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: red)),
                     const SizedBox(width: 8),
                   ],
                   Text(_status, style: TextStyle(color: text, fontSize: 14, fontWeight: FontWeight.w500)),
                 ]),
               ),
-
             const SizedBox(height: 14),
 
-            // ── Stream Key ──
-            Text('YouTube Stream Key', style: TextStyle(color: subtext, fontSize: 12, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 6),
+            // 2. Stream Key
+            _sectionLabel('YouTube Stream Key'),
             _card(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
               child: Row(children: [
@@ -712,9 +744,8 @@ class _StreamPageState extends State<StreamPage> {
             ),
             const SizedBox(height: 16),
 
-            // ── Audio ──
-            Text('Audio', style: TextStyle(color: subtext, fontSize: 12, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 6),
+            // 3. Audio
+            _sectionLabel('Audio'),
             Row(children: [
               _selectBtn('internal', _audioMode, '🔊', 'Only Internal', 'Game/App sound', (v) => _audioMode = v),
               const SizedBox(width: 10),
@@ -722,72 +753,16 @@ class _StreamPageState extends State<StreamPage> {
             ]),
             const SizedBox(height: 16),
 
-            // ── Orientation ──
-            Text('Orientation', style: TextStyle(color: subtext, fontSize: 12, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 6),
+            // 4. Orientation
+            _sectionLabel('Orientation'),
             Row(children: [
               _selectBtn('landscape', _orientation, '🖥️', 'Landscape', '16:9', (v) => _orientation = v),
               const SizedBox(width: 10),
               _selectBtn('portrait', _orientation, '📱', 'Portrait (Shorts)', '9:16', (v) => _orientation = v),
             ]),
-            const SizedBox(height: 16),
-
-            // ── Stream Quality ──
-            _bitrateSection(),
-            const SizedBox(height: 16),
-
-            // ── Camera ──
-            _card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(children: [
-                        Icon(Icons.videocam_rounded, color: _cameraEnabled ? red : subtext, size: 20),
-                        const SizedBox(width: 8),
-                        Text('Camera', style: TextStyle(color: text, fontSize: 14, fontWeight: FontWeight.w600)),
-                      ]),
-                      Switch(
-                        value: _cameraEnabled,
-                        onChanged: _isStreaming ? null : (v) => setState(() => _cameraEnabled = v),
-                        activeColor: red,
-                      ),
-                    ],
-                  ),
-                  if (_cameraEnabled) ...[
-                    const SizedBox(height: 12),
-                    Text('Mode', style: TextStyle(color: subtext, fontSize: 12)),
-                    const SizedBox(height: 6),
-                    Row(children: [
-                      _selectBtn('pip', _cameraMode, '🎮', 'PIP', 'Corner overlay', (v) => _cameraMode = v),
-                      const SizedBox(width: 10),
-                      _selectBtn('split', _cameraMode, '📱', 'Split', '70/30 vertical', (v) => _cameraMode = v),
-                    ]),
-                    const SizedBox(height: 12),
-                    Text('Camera', style: TextStyle(color: subtext, fontSize: 12)),
-                    const SizedBox(height: 6),
-                    Row(children: [
-                      _selectBtn('back', _cameraFacing, '📷', 'Back', 'Main camera', (v) => _cameraFacing = v),
-                      const SizedBox(width: 10),
-                      _selectBtn('front', _cameraFacing, '🤳', 'Front', 'Selfie camera', (v) => _cameraFacing = v),
-                    ]),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // ── Overlay ──
-            _overlayPanel(),
-            const SizedBox(height: 16),
-
-            // ── YouTube API (viewer count) ──
-            _ytApiSection(),
             const SizedBox(height: 24),
 
-            // ── Start/Stop Button ──
+            // 5. START / STOP
             SizedBox(
               height: 54,
               child: ElevatedButton(
@@ -811,6 +786,10 @@ class _StreamPageState extends State<StreamPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 20),
+
+            // Advanced Settings (expandable)
+            _advancedSection(),
             const SizedBox(height: 24),
           ],
         ),
