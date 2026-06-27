@@ -151,6 +151,11 @@ class MainActivity : FlutterActivity() {
             REQUEST_OVERLAY -> requestMediaProjection()
             REQUEST_MEDIA_PROJECTION -> {
                 if (resultCode == Activity.RESULT_OK && data != null) {
+                    // Screen actual size मिळव — portrait/landscape साठी correct resolution
+                    val metrics = resources.displayMetrics
+                    val screenW = metrics.widthPixels
+                    val screenH = metrics.heightPixels
+
                     val intent = Intent(this, StreamService::class.java).apply {
                         putExtra("resultCode", resultCode)
                         putExtra("data", data)
@@ -158,6 +163,8 @@ class MainActivity : FlutterActivity() {
                         putExtra("streamKey", pendingStreamKey)
                         putExtra("audioMode", pendingAudioMode)
                         putExtra("orientation", pendingOrientation)
+                        putExtra("screenWidth", screenW)   // ← actual screen size
+                        putExtra("screenHeight", screenH)  // ← actual screen size
                         putExtra("overlayText", pendingOverlayText ?: "")
                         putExtra("overlayImagePath", pendingOverlayImagePath ?: "")
                         putExtra("textX", pendingTextX.toFloat())
@@ -167,6 +174,7 @@ class MainActivity : FlutterActivity() {
                         putExtra("cameraEnabled", pendingCameraEnabled)
                         putExtra("cameraFacing", pendingCameraFacing)
                         putExtra("cameraMode", pendingCameraMode)
+                        putExtra("singleAppShare", false)  // ← missing होतं, add केलं
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
                     else startService(intent)

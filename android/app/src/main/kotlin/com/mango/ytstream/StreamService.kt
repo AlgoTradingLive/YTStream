@@ -65,6 +65,8 @@ class StreamService : Service(), ConnectChecker {
     private var lastImageX = 0.7f
     private var lastImageY = 0.05f
     private var isSingleAppShare = false
+    private var savedScreenWidth = 0
+    private var savedScreenHeight = 0
 
     // Camera restart साठी — एकापेक्षा जास्त वेळा restart होऊ नये म्हणून flag
     private var isCameraRestarting = false
@@ -193,6 +195,13 @@ class StreamService : Service(), ConnectChecker {
             )
 
             cameraOverlay!!.start(useFront, savedOrientation == "portrait")
+
+            // GL filter add झाल्यावर 400ms wait → मग frames accept करायला सांग
+            // यामुळे black screen येणार नाही restart नंतर
+            mainHandler.postDelayed({
+                cameraOverlay?.markFilterReady()
+            }, 400)
+
             notify("📷 Camera ON")
 
         } catch (e: Exception) {
@@ -372,6 +381,8 @@ class StreamService : Service(), ConnectChecker {
         cameraFacing = intent.getStringExtra("cameraFacing") ?: "back"
         cameraMode = intent.getStringExtra("cameraMode") ?: "pip"
         isSingleAppShare = intent.getBooleanExtra("singleAppShare", false)
+        savedScreenWidth = intent.getIntExtra("screenWidth", 0)
+        savedScreenHeight = intent.getIntExtra("screenHeight", 0)
 
         lastOverlayText = intent.getStringExtra("overlayText") ?: ""
         lastOverlayImagePath = intent.getStringExtra("overlayImagePath") ?: ""
@@ -400,8 +411,17 @@ class StreamService : Service(), ConnectChecker {
         acquireWakeLock()
 
         val isPortrait = orientation == "portrait"
-        val vW = if (isPortrait) 720 else 1280
-        val vH = if (isPortrait) 1280 else 720
+        // Actual screen dimensions वापर — fixed 720/1280 मुळे portrait फाटत होतं
+        val vW = when {
+            savedScreenWidth > 0 -> savedScreenWidth
+            isPortrait -> 720
+            else -> 1280
+        }
+        val vH = when {
+            savedScreenHeight > 0 -> savedScreenHeight
+            isPortrait -> 1280
+            else -> 720
+        }
 
         mainHandler.post {
             try {

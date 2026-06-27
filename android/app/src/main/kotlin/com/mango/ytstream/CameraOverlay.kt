@@ -33,6 +33,7 @@ class CameraOverlay(
     private var processHandler: Handler? = null
     private val isRunning = AtomicBoolean(false)
     private val isProcessing = AtomicBoolean(false)
+    private val isFilterReady = AtomicBoolean(false)  // ← filter ready झाल्यावरच frames पाठव
     private var imgW = 320
     private var imgH = 240
 
@@ -92,8 +93,13 @@ class CameraOverlay(
         }
     }
 
+    fun markFilterReady() {
+        isFilterReady.set(true)
+    }
+
     fun start(useFront: Boolean, isPortrait: Boolean = false) {
         if (isRunning.get()) stop()
+        isFilterReady.set(false)  // reset — filter ready नाही अजून
 
         imgW = if (isPortrait) 240 else 320
         imgH = if (isPortrait) 320 else 240
@@ -133,7 +139,7 @@ class CameraOverlay(
 
             processHandler?.post {
                 try {
-                    if (isRunning.get()) {
+                    if (isRunning.get() && isFilterReady.get()) {  // ← filter ready असेल तरच
                         val nv21 = imageToNv21(image)
                         image.close()
                         val bitmap = nv21ToBitmap(nv21, imgW, imgH)
@@ -218,6 +224,7 @@ class CameraOverlay(
     fun stop() {
         isRunning.set(false)
         isProcessing.set(false)
+        isFilterReady.set(false)  // reset
         try { captureSession?.stopRepeating() } catch (_: Exception) {}
         try { captureSession?.close() } catch (_: Exception) {}
         try { cameraDevice?.close() } catch (_: Exception) {}
