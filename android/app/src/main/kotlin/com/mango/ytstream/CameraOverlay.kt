@@ -2,22 +2,21 @@ package com.mango.ytstream
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
-import android.graphics.Matrix
+import android.graphics.Rect
+import android.graphics.YuvImage
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
+import android.media.Image
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
-import android.renderscript.Allocation
-import android.renderscript.Element
-import android.renderscript.RenderScript
-import android.renderscript.ScriptIntrinsicYuvToRGB
-import android.renderscript.Type
 import android.util.Log
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 
 class CameraOverlay(
@@ -33,13 +32,6 @@ class CameraOverlay(
     private var processHandler: Handler? = null
     private val isRunning = AtomicBoolean(false)
     private val isProcessing = AtomicBoolean(false)
-
-    // RenderScript for fast YUV→RGB conversion (GPU accelerated)
-    private var rs: RenderScript? = null
-    private var yuvToRgb: ScriptIntrinsicYuvToRGB? = null
-    private var inputAlloc: Allocation? = null
-    private var outputAlloc: Allocation? = null
-    private var outputBitmap: Bitmap? = null
     private var imgW = 320
     private var imgH = 240
 
@@ -47,68 +39,60 @@ class CameraOverlay(
         private const val TAG = "CameraOverlay"
     }
 
-    private fun initRenderScript(w: Int, h: Int) {
-        try {
-            rs = RenderScript.create(context)
-            yuvToRgb = ScriptIntrinsicYuvToRGB.create(rs, Element.U8_4(rs))
+    // YUV_420_888 → NV21 → JPEG → Bitmap
+    // YUV_420_888 चे planes बरोबर copy करतो
+    private fun imageToNv21(image: Image): ByteArray {
+        val width = image.width
+        val height = image.height
 
-            val yuvSize = w * h * 3 / 2  // YUV_420_888 size
-            val yuvType = Type.Builder(rs, Element.U8(rs)).setX(yuvSize).create()
-            inputAlloc = Allocation.createTyped(rs, yuvType, Allocation.USAGE_SCRIPT)
+        val yPlane = image.planes[0]
+        val uPlane = image.planes[1]
+        val vPlane = image.planes[2]
 
-            val rgbType = Type.Builder(rs, Element.RGBA_8888(rs))
-                .setX(w).setY(h).create()
-            outputAlloc = Allocation.createTyped(rs, rgbType, Allocation.USAGE_SCRIPT)
+        val yBuffer = yPlane.buffer
+        val uBuffer = uPlane.buffer
+        val vBuffer = vPlane.buffer
 
-            outputBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            Log.d(TAG, "RenderScript initialized ${w}x${h}")
-        } catch (e: Exception) {
-            Log.e(TAG, "RenderScript init failed: ${e.message}")
-            rs = null
+        val yRowStride = yPlane.rowStride
+        val uvRowStride = uPlane.rowStride
+        val uvPixelStride = uPlane.pixelStride
+
+        val nv21 = ByteArray(width * height * 3 / 2)
+
+        // Y plane copy (row by row — row stride वेगळा असू शकतो)
+        var pos = 0
+        for (row in 0 until height) {
+            yBuffer.position(row * yRowStride)
+            yBuffer.get(nv21, pos, width)
+            pos += width
         }
+
+        // VU interleaved (NV21 format: V then U)
+        for (row in 0 until height / 2) {
+            for (col in 0 until width / 2) {
+                val uvIndex = row * uvRowStride + col * uvPixelStride
+                // NV21: V before U
+                vBuffer.position(uvIndex)
+                nv21[pos++] = vBuffer.get()
+                uBuffer.position(uvIndex)
+                nv21[pos++] = uBuffer.get()
+            }
+        }
+
+        return nv21
     }
 
-    private fun yuvToRgbBitmap(image: android.media.Image): Bitmap? {
+    private fun nv21ToBitmap(nv21: ByteArray, w: Int, h: Int): Bitmap? {
         return try {
-            val yBuffer = image.planes[0].buffer
-            val uBuffer = image.planes[1].buffer
-            val vBuffer = image.planes[2].buffer
-
-            val ySize = yBuffer.remaining()
-            val uSize = uBuffer.remaining()
-            val vSize = vBuffer.remaining()
-
-            val nv21 = ByteArray(ySize + uSize + vSize)
-            yBuffer.get(nv21, 0, ySize)
-            vBuffer.get(nv21, ySize, vSize)
-            uBuffer.get(nv21, ySize + vSize, uSize)
-
-            if (rs != null && inputAlloc != null && outputAlloc != null && outputBitmap != null) {
-                // RenderScript GPU conversion
-                inputAlloc!!.copyFrom(nv21)
-                yuvToRgb!!.setInput(inputAlloc)
-                yuvToRgb!!.forEach(outputAlloc)
-                outputAlloc!!.copyTo(outputBitmap)
-                outputBitmap!!.copy(Bitmap.Config.ARGB_8888, true)
-            } else {
-                // Fallback: simple YUV→RGB in software
-                yuvNv21ToBitmap(nv21, imgW, imgH)
-            }
+            val yuv = YuvImage(nv21, ImageFormat.NV21, w, h, null)
+            val out = ByteArrayOutputStream()
+            yuv.compressToJpeg(Rect(0, 0, w, h), 75, out)
+            val bytes = out.toByteArray()
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         } catch (e: Exception) {
-            Log.e(TAG, "YUV convert error: ${e.message}")
+            Log.e(TAG, "nv21ToBitmap error: ${e.message}")
             null
         }
-    }
-
-    private fun yuvNv21ToBitmap(yuv: ByteArray, width: Int, height: Int): Bitmap {
-        val android_yuv = android.graphics.YuvImage(
-            yuv, ImageFormat.NV21, width, height, null
-        )
-        val out = java.io.ByteArrayOutputStream()
-        android_yuv.compressToJpeg(android.graphics.Rect(0, 0, width, height), 80, out)
-        val bytes = out.toByteArray()
-        return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     }
 
     fun start(useFront: Boolean, isPortrait: Boolean = false) {
@@ -121,8 +105,6 @@ class CameraOverlay(
         cameraHandler = Handler(cameraThread!!.looper)
         processThread = HandlerThread("CameraProcessThread").also { it.start() }
         processHandler = Handler(processThread!!.looper)
-
-        initRenderScript(imgW, imgH)
 
         val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
@@ -143,7 +125,6 @@ class CameraOverlay(
 
         if (cameraId == null) { Log.e(TAG, "No camera found"); return }
 
-        // YUV_420_888 — JPEG पेक्षा खूप fast, GPU load नाही
         imageReader = ImageReader.newInstance(imgW, imgH, ImageFormat.YUV_420_888, 2)
         imageReader!!.setOnImageAvailableListener({ reader ->
             if (isProcessing.getAndSet(true)) {
@@ -156,9 +137,14 @@ class CameraOverlay(
             processHandler?.post {
                 try {
                     if (isRunning.get()) {
-                        val bitmap = yuvToRgbBitmap(image)
+                        val nv21 = imageToNv21(image)
                         image.close()
-                        if (bitmap != null) onFrame(bitmap)
+                        val bitmap = nv21ToBitmap(nv21, imgW, imgH)
+                        if (bitmap != null) {
+                            val copy = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                            bitmap.recycle()
+                            onFrame(copy)
+                        }
                     } else {
                         image.close()
                     }
@@ -186,7 +172,6 @@ class CameraOverlay(
                                             CameraDevice.TEMPLATE_PREVIEW
                                         ).apply {
                                             addTarget(surface)
-                                            // Low FPS — दुसरं app असताना CPU/GPU कमी वापर
                                             set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
                                                 android.util.Range(8, 12))
                                         }.build()
@@ -197,7 +182,7 @@ class CameraOverlay(
                                         Log.e(TAG, "Request error: ${e.message}")
                                     }
                                 }
-                                override fun onConfigureFailed(session: CameraCaptureSession) {
+                                override fun onConfigureFailed(s: CameraCaptureSession) {
                                     Log.e(TAG, "Configure failed"); isRunning.set(false)
                                 }
                             }, cameraHandler)
@@ -227,16 +212,9 @@ class CameraOverlay(
         try { captureSession?.close() } catch (_: Exception) {}
         try { cameraDevice?.close() } catch (_: Exception) {}
         try { imageReader?.close() } catch (_: Exception) {}
-        try { inputAlloc?.destroy() } catch (_: Exception) {}
-        try { outputAlloc?.destroy() } catch (_: Exception) {}
-        try { outputBitmap?.recycle() } catch (_: Exception) {}
-        try { yuvToRgb?.destroy() } catch (_: Exception) {}
-        try { rs?.destroy() } catch (_: Exception) {}
         try { cameraThread?.quitSafely() } catch (_: Exception) {}
         try { processThread?.quitSafely() } catch (_: Exception) {}
         cameraDevice = null; captureSession = null; imageReader = null
-        inputAlloc = null; outputAlloc = null; outputBitmap = null
-        yuvToRgb = null; rs = null
         cameraThread = null; cameraHandler = null
         processThread = null; processHandler = null
         Log.d(TAG, "Camera stopped")
