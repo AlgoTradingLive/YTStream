@@ -65,6 +65,7 @@ class StreamService : Service(), ConnectChecker {
     private var lastImageX = 0.7f
     private var lastImageY = 0.05f
     private var isSingleAppShare = false
+    private var savedBitrate = 2_000_000 // default 2 Mbps
     private var savedScreenWidth = 0
     private var savedScreenHeight = 0
 
@@ -384,6 +385,7 @@ class StreamService : Service(), ConnectChecker {
         cameraFacing = intent.getStringExtra("cameraFacing") ?: "back"
         cameraMode = intent.getStringExtra("cameraMode") ?: "pip"
         isSingleAppShare = intent.getBooleanExtra("singleAppShare", false)
+        savedBitrate = intent.getIntExtra("bitrate", 2_000_000)
         savedScreenWidth = intent.getIntExtra("screenWidth", 0)
         savedScreenHeight = intent.getIntExtra("screenHeight", 0)
 
@@ -466,7 +468,7 @@ class StreamService : Service(), ConnectChecker {
             getGlInterface().setForceRender(true)
         }
 
-        val vOk = genericStream!!.prepareVideo(w, h, 1_500_000)
+        val vOk = genericStream!!.prepareVideo(w, h, savedBitrate)
         val aOk = genericStream!!.prepareAudio(
             sampleRate = 44100, isStereo = true, bitrate = 128_000,
             echoCanceler = true, noiseSuppressor = true
@@ -494,7 +496,7 @@ class StreamService : Service(), ConnectChecker {
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        val vOk = rtmpDisplay!!.prepareVideo(w, h, 1_500_000)
+        val vOk = rtmpDisplay!!.prepareVideo(w, h, savedBitrate)
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true), Triple(128_000, 44100, false),
