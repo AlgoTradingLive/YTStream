@@ -135,19 +135,16 @@ class StreamService : Service(), ConnectChecker {
 
             val useFront = cameraFacing == "front"
 
-            // SurfaceTexture approach — JPEG/Bitmap नाही
-            // Camera2 → SurfaceTexture → GL filter directly
-            cameraOverlay = CameraOverlay(
-    context = applicationContext,
-    onFrame = { bitmap ->
-        mainHandler.post {
-            try {
-                if (cameraFilter != null) filter.setImage(bitmap)
-                else bitmap.recycle()
-            } catch (_: Exception) { bitmap.recycle() }
-        }
-    }
-)
+            cameraOverlay = CameraOverlay(applicationContext) { bitmap ->
+                val currentFilter = cameraFilter
+                if (currentFilter == null) { bitmap.recycle(); return@CameraOverlay }
+                mainHandler.post {
+                    try {
+                        if (cameraFilter != null) currentFilter.setImage(bitmap)
+                        else bitmap.recycle()
+                    } catch (_: Exception) { bitmap.recycle() }
+                }
+            }
 
             cameraOverlay!!.start(useFront, savedOrientation == "portrait")
             notify("📷 Camera ON")
