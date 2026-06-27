@@ -400,11 +400,18 @@ class StreamService : Service(), ConnectChecker {
         savedFullUrl = "$rtmpUrl/$streamKey"
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Camera type add केला — MIUI/Xiaomi camera revoke करत होता कारण हे missing होतं
+            val cameraType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            } else { 0 }
+
             val fgsType = if (audioMode == "mic_internal") {
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                cameraType
             } else {
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
+                cameraType
             }
             startForeground(NOTIF_ID, buildNotification(), fgsType)
         } else {
