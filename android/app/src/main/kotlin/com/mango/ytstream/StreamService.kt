@@ -415,6 +415,7 @@ class StreamService : Service(), ConnectChecker {
             val mix = MixAudioSource(mp)
             mixAudioSource = mix
             genericStream!!.changeAudioSource(mix)
+            genericStream!!.getStreamClient().setReTries(5)
             genericStream!!.startStream(url)
             mainHandler.postDelayed({
                 applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY)
@@ -446,6 +447,7 @@ class StreamService : Service(), ConnectChecker {
         if (!aOk) aOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
 
         if (vOk && aOk) {
+            rtmpDisplay!!.getStreamClient().setReTries(5)
             rtmpDisplay!!.startStream(url)
             mainHandler.postDelayed({
                 applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY)
