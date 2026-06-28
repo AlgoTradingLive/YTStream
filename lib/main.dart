@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() => runApp(const YTStreamApp());
 
@@ -312,12 +313,49 @@ class _StreamPageState extends State<StreamPage> {
     final c = TextEditingController(text: _rtmpUrl);
     showDialog(context: context, builder: (ctx) => AlertDialog(
       backgroundColor: card,
-      title: Text('RTMP URL', style: TextStyle(color: text)),
-      content: TextField(controller: c, style: TextStyle(color: text),
-        decoration: InputDecoration(enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: border)))),
+      title: Text('Settings', style: TextStyle(color: text, fontSize: 16, fontWeight: FontWeight.bold)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // RTMP URL
+          Text('RTMP URL', style: TextStyle(color: subtext, fontSize: 12)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: c,
+            style: TextStyle(color: text, fontSize: 13),
+            decoration: InputDecoration(
+              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: border)),
+              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: red)),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Divider(color: border),
+          const SizedBox(height: 8),
+          // Links section
+          Text('Links', style: TextStyle(color: subtext, fontSize: 12)),
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: () async {
+              final url = Uri.parse('https://sites.google.com/view/ytstream-privacypolicy/home');
+              if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication);
+            },
+            child: Row(children: [
+              Icon(Icons.privacy_tip_outlined, color: red, size: 18),
+              const SizedBox(width: 8),
+              Text('Privacy Policy', style: TextStyle(color: red, fontSize: 13, fontWeight: FontWeight.w500)),
+              const Spacer(),
+              Icon(Icons.open_in_new, color: subtext, size: 14),
+            ]),
+          ),
+        ],
+      ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: subtext))),
-        TextButton(onPressed: () { setState(() => _rtmpUrl = c.text.trim()); Navigator.pop(ctx); },
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: Text('Cancel', style: TextStyle(color: subtext))),
+        TextButton(
+          onPressed: () { setState(() => _rtmpUrl = c.text.trim()); Navigator.pop(ctx); },
           child: Text('Save', style: TextStyle(color: red))),
       ],
     ));
