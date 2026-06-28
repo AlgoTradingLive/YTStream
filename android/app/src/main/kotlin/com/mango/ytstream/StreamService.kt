@@ -281,8 +281,7 @@ class StreamService : Service(), ConnectChecker {
                 val scaleW = when (textSize) { "small" -> 28f; "large" -> 45f; else -> 35f }
                 tf.setScale(scaleW, 12f)
                 tf.setPosition(textX * 100f, textY * 100f)
-                tf.setText(overlayText, fontSize, color, typeface)
-                tf.setBackgroundColor(bg)
+                tf.setText(overlayText, fontSize, color)
                 glInterface.addFilter(tf)
                 textFilter = tf
             }
@@ -339,8 +338,7 @@ class StreamService : Service(), ConnectChecker {
         val tickerBg = parseBgColor(bgColor, bgOpacity)
         tf.setScale(60f, 8f)
         tf.setPosition(100f, 88f)
-        tf.setText(text, 36f, tickerColor, tickerTypeface)
-        tf.setBackgroundColor(tickerBg)
+        tf.setText(text, 36f, tickerColor)
         glInterface.addFilter(tf)
         tickerFilter = tf
         tickerPositionX = 100f
@@ -629,7 +627,7 @@ class StreamService : Service(), ConnectChecker {
             genericStream!!.changeAudioSource(mix)
             genericStream!!.startStream(url)
             mainHandler.postDelayed({
-                applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY)
+                applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY, lastTextBold, lastTextSize, lastTextColor, lastImageScale, lastTextFont, lastTextBgColor, lastTextBgOpacity)
                 if (cameraEnabled) setupCamera()
             }, 1000)
         } else {
@@ -660,7 +658,7 @@ class StreamService : Service(), ConnectChecker {
         if (vOk && aOk) {
             rtmpDisplay!!.startStream(url)
             mainHandler.postDelayed({
-                applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY)
+                applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY, lastTextBold, lastTextSize, lastTextColor, lastImageScale, lastTextFont, lastTextBgColor, lastTextBgOpacity)
                 if (cameraEnabled) setupCamera()
             }, 1000)
         } else {
