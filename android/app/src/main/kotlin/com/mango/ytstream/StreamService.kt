@@ -67,7 +67,13 @@ class StreamService : Service(), ConnectChecker {
     private var lastTextBold = false
     private var lastTextSize = "medium"
     private var lastTextColor = "white"
+    private var lastTextFont = "roboto_bold"   // default: Roboto Bold
+    private var lastTextBgColor = "black"       // default: Black background
+    private var lastTextBgOpacity = 0.6f
     private var lastImageScale = "medium"
+    private var lastTickerFont = "roboto_bold"
+    private var lastTickerBgColor = "black"
+    private var lastTickerBgOpacity = 0.6f
 
     // Ticker
     private var tickerText = ""
@@ -211,11 +217,36 @@ class StreamService : Service(), ConnectChecker {
         cameraOverlay = null
     }
 
-    private fun applyOverlay(
+    // Font load करणे — assets/Fonts/ मधून
+    private fun loadTypeface(fontName: String): android.graphics.Typeface {
+        return try {
+            when (fontName) {
+                "roboto_bold" -> android.graphics.Typeface.createFromAsset(assets, "Fonts/Roboto-Bold.ttf")
+                "roboto_condensed" -> android.graphics.Typeface.createFromAsset(assets, "Fonts/Roboto_Condensed-Black.ttf")
+                "bangers" -> android.graphics.Typeface.createFromAsset(assets, "Fonts/Bangers-Regular.ttf")
+                else -> android.graphics.Typeface.createFromAsset(assets, "Fonts/Roboto-Bold.ttf")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Font load error: ${e.message}")
+            android.graphics.Typeface.DEFAULT_BOLD
+        }
+    }
+
+    // Background color parse
+    private fun parseBgColor(colorName: String, opacity: Float): Int {
+        val alpha = (opacity * 255).toInt().coerceIn(0, 255)
+        return when (colorName) {
+            "white" -> Color.argb(alpha, 255, 255, 255)
+            "none"  -> Color.TRANSPARENT
+            else    -> Color.argb(alpha, 0, 0, 0)  // black default
+        }
+    }
+
         overlayText: String, overlayImagePath: String,
         textX: Float, textY: Float, imageX: Float, imageY: Float,
         bold: Boolean = false, textSize: String = "medium",
-        textColor: String = "white", imageScale: String = "medium"
+        textColor: String = "white", imageScale: String = "medium",
+        fontName: String = "roboto_bold", bgColor: String = "black", bgOpacity: Float = 0.6f
     ) {
         lastOverlayText = overlayText
         lastOverlayImagePath = overlayImagePath
@@ -223,6 +254,7 @@ class StreamService : Service(), ConnectChecker {
         lastImageX = imageX; lastImageY = imageY
         lastTextBold = bold; lastTextSize = textSize
         lastTextColor = textColor; lastImageScale = imageScale
+        lastTextFont = fontName; lastTextBgColor = bgColor; lastTextBgOpacity = bgOpacity
 
         try {
             val glInterface = genericStream?.getGlInterface() ?: rtmpDisplay?.glInterface ?: return
@@ -243,15 +275,14 @@ class StreamService : Service(), ConnectChecker {
                     "black" -> Color.BLACK
                     else -> Color.WHITE
                 }
+                val typeface = loadTypeface(fontName)
+                val bg = parseBgColor(bgColor, bgOpacity)
                 val tf = TextObjectFilterRender()
                 val scaleW = when (textSize) { "small" -> 28f; "large" -> 45f; else -> 35f }
                 tf.setScale(scaleW, 12f)
                 tf.setPosition(textX * 100f, textY * 100f)
-                if (bold) {
-                    tf.setText(overlayText, fontSize, color, android.graphics.Typeface.DEFAULT_BOLD)
-                } else {
-                    tf.setText(overlayText, fontSize, color)
-                }
+                tf.setText(overlayText, fontSize, color, typeface)
+                tf.setBackgroundColor(bg)
                 glInterface.addFilter(tf)
                 textFilter = tf
             }
@@ -287,7 +318,7 @@ class StreamService : Service(), ConnectChecker {
     }
 
     // Ticker — manually scroll करतो Timer ने
-    private fun applyTicker(text: String, color: String = "white") {
+    private fun applyTicker(text: String, color: String = "white", fontName: String = "roboto_bold", bgColor: String = "black", bgOpacity: Float = 0.6f) {
         if (text.isEmpty()) {
             stopTicker()
             return
@@ -299,13 +330,17 @@ class StreamService : Service(), ConnectChecker {
         stopTicker()
 
         tickerText = text
+        lastTickerFont = fontName; lastTickerBgColor = bgColor; lastTickerBgOpacity = bgOpacity
         val tf = TextObjectFilterRender()
         val tickerColor = when (color) {
             "yellow" -> Color.YELLOW; "red" -> Color.RED; else -> Color.WHITE
         }
+        val tickerTypeface = loadTypeface(fontName)
+        val tickerBg = parseBgColor(bgColor, bgOpacity)
         tf.setScale(60f, 8f)
-        tf.setPosition(100f, 88f) // start from right edge
-        tf.setText(text, 36f, tickerColor)
+        tf.setPosition(100f, 88f)
+        tf.setText(text, 36f, tickerColor, tickerTypeface)
+        tf.setBackgroundColor(tickerBg)
         glInterface.addFilter(tf)
         tickerFilter = tf
         tickerPositionX = 100f
@@ -463,13 +498,19 @@ class StreamService : Service(), ConnectChecker {
                 val tSize = intent.getStringExtra("textSize") ?: "medium"
                 val tColor = intent.getStringExtra("textColor") ?: "white"
                 val iScale = intent.getStringExtra("imageScale") ?: "medium"
-                mainHandler.post { applyOverlay(text, imagePath, tx, ty, ix, iy, bold, tSize, tColor, iScale) }
+                val tFont = intent.getStringExtra("textFont") ?: "roboto_bold"
+                val tBgColor = intent.getStringExtra("textBgColor") ?: "black"
+                val tBgOpacity = intent.getFloatExtra("textBgOpacity", 0.6f)
+                mainHandler.post { applyOverlay(text, imagePath, tx, ty, ix, iy, bold, tSize, tColor, iScale, tFont, tBgColor, tBgOpacity) }
                 return START_NOT_STICKY
             }
             "UPDATE_TICKER" -> {
                 val text = intent.getStringExtra("tickerText") ?: ""
                 val color = intent.getStringExtra("tickerColor") ?: "white"
-                mainHandler.post { applyTicker(text, color) }
+                val tFont = intent.getStringExtra("tickerFont") ?: "roboto_bold"
+                val tBgColor = intent.getStringExtra("tickerBgColor") ?: "black"
+                val tBgOpacity = intent.getFloatExtra("tickerBgOpacity", 0.6f)
+                mainHandler.post { applyTicker(text, color, tFont, tBgColor, tBgOpacity) }
                 return START_NOT_STICKY
             }
             "STOP_TICKER" -> {
