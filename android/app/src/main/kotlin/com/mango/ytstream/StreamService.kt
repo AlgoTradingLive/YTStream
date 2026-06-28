@@ -242,6 +242,7 @@ class StreamService : Service(), ConnectChecker {
         }
     }
 
+    private fun applyOverlay(
         overlayText: String, overlayImagePath: String,
         textX: Float, textY: Float, imageX: Float, imageY: Float,
         bold: Boolean = false, textSize: String = "medium",
