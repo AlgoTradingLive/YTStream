@@ -38,17 +38,22 @@ class _YTStreamAppState extends State<YTStreamApp> {
 // ── Overlay data model ────────────────────────────────────────────────────────
 class OverlayItem {
   String type; // 'text' | 'image' | 'ticker'
-  String content; // text string or image path
-  double x, y;   // 0.0–1.0
+  String content;
+  double x, y;
   bool bold;
-  String textSize;   // small | medium | large
-  String textColor;  // white | yellow | red | black
-  String imageScale; // small | medium | large
+  String textSize;    // small | medium | large
+  String textColor;   // white | yellow | red | black
+  String textFont;    // roboto_bold | roboto_condensed | bangers
+  String textBgColor; // black | white | none
+  double textBgOpacity;
+  String imageScale;
   OverlayItem({
     required this.type, required this.content,
     this.x = 0.05, this.y = 0.05,
     this.bold = false, this.textSize = 'medium',
-    this.textColor = 'white', this.imageScale = 'medium',
+    this.textColor = 'white', this.textFont = 'roboto_bold',
+    this.textBgColor = 'black', this.textBgOpacity = 0.6,
+    this.imageScale = 'medium',
   });
 }
 
@@ -85,8 +90,14 @@ class _StreamPageState extends State<StreamPage> {
   String _draftTextColor = 'white';
   String _draftTextSize = 'medium';
   bool _draftBold = false;
+  String _draftTextFont = 'roboto_bold';
+  String _draftTextBgColor = 'black';
+  double _draftTextBgOpacity = 0.6;
   String _draftImageScale = 'medium';
   String _draftTickerColor = 'white';
+  String _draftTickerFont = 'roboto_bold';
+  String _draftTickerBgColor = 'black';
+  double _draftTickerBgOpacity = 0.6;
 
   // Timer
   Timer? _timer;
@@ -219,6 +230,9 @@ class _StreamPageState extends State<StreamPage> {
       'textBold': t?.bold ?? false,
       'textSize': t?.textSize ?? 'medium',
       'textColor': t?.textColor ?? 'white',
+      'textFont': t?.textFont ?? 'roboto_bold',
+      'textBgColor': t?.textBgColor ?? 'black',
+      'textBgOpacity': t?.textBgOpacity ?? 0.6,
       'imageScale': img?.imageScale ?? 'medium',
     });
   }
@@ -231,6 +245,9 @@ class _StreamPageState extends State<StreamPage> {
       platform.invokeMethod('updateTicker', {
         'tickerText': tk.content,
         'tickerColor': tk.textColor,
+        'tickerFont': tk.textFont,
+        'tickerBgColor': tk.textBgColor,
+        'tickerBgOpacity': tk.textBgOpacity,
       });
     }
   }
@@ -389,6 +406,110 @@ class _StreamPageState extends State<StreamPage> {
   }
 
   // ── Size pills ────────────────────────────────────────────────────────────
+  // Font name display
+  String _fontLabel(String f) {
+    switch (f) {
+      case 'roboto_bold': return 'Roboto Bold';
+      case 'roboto_condensed': return 'Condensed';
+      case 'bangers': return 'Bangers';
+      default: return 'Roboto Bold';
+    }
+  }
+
+  Widget _fontPills(String current, Function(String) onSelect) {
+    return Row(children: ['roboto_bold', 'roboto_condensed', 'bangers'].map((f) {
+      final sel = f == current;
+      return GestureDetector(
+        onTap: () => setState(() => onSelect(f)),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          margin: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: sel ? red : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: sel ? red : border),
+          ),
+          child: Text(_fontLabel(f),
+            style: TextStyle(color: sel ? Colors.white : subtext, fontSize: 10, fontWeight: FontWeight.w500)),
+        ),
+      );
+    }).toList());
+  }
+
+  // Background color + opacity row
+  Widget _bgColorRow(String current, double opacity, Function(String) onColorSelect, Function(double) onOpacityChange) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          // None
+          GestureDetector(
+            onTap: () => setState(() => onColorSelect('none')),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: current == 'none' ? red : Colors.transparent,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: current == 'none' ? red : border),
+              ),
+              child: Text('None', style: TextStyle(color: current == 'none' ? Colors.white : subtext, fontSize: 10)),
+            ),
+          ),
+          // Black
+          GestureDetector(
+            onTap: () => setState(() => onColorSelect('black')),
+            child: Container(
+              width: 28, height: 28, margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                color: Colors.black, shape: BoxShape.circle,
+                border: Border.all(color: current == 'black' ? red : Colors.grey.withOpacity(0.4), width: current == 'black' ? 2.5 : 1),
+              ),
+              child: current == 'black' ? const Icon(Icons.check, size: 14, color: Colors.white) : null,
+            ),
+          ),
+          // White
+          GestureDetector(
+            onTap: () => setState(() => onColorSelect('white')),
+            child: Container(
+              width: 28, height: 28, margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                color: Colors.white, shape: BoxShape.circle,
+                border: Border.all(color: current == 'white' ? red : Colors.grey.withOpacity(0.4), width: current == 'white' ? 2.5 : 1),
+              ),
+              child: current == 'white' ? const Icon(Icons.check, size: 14, color: Colors.black) : null,
+            ),
+          ),
+        ]),
+        if (current != 'none') ...[
+          const SizedBox(height: 6),
+          Row(children: [
+            Text('Opacity', style: TextStyle(color: subtext, fontSize: 10)),
+            Expanded(
+              child: SliderTheme(
+                data: SliderThemeData(
+                  trackHeight: 2,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                  activeTrackColor: red,
+                  inactiveTrackColor: border,
+                  thumbColor: red,
+                ),
+                child: Slider(
+                  value: opacity, min: 0.1, max: 1.0, divisions: 9,
+                  onChanged: (v) => setState(() => onOpacityChange(v)),
+                ),
+              ),
+            ),
+            Text('${(opacity * 100).toInt()}%', style: TextStyle(color: subtext, fontSize: 10)),
+          ]),
+        ],
+      ],
+    );
+  }
+
   Widget _sizePills(String current, Function(String) onSelect) {
     return Row(children: ['small', 'medium', 'large'].map((s) {
       final sel = s == current;
@@ -576,6 +697,7 @@ class _StreamPageState extends State<StreamPage> {
                 type: 'text', content: t,
                 x: _textOverlay?.x ?? 0.05, y: _textOverlay?.y ?? 0.05,
                 bold: _draftBold, textSize: _draftTextSize, textColor: _draftTextColor,
+                textFont: _draftTextFont, textBgColor: _draftTextBgColor, textBgOpacity: _draftTextBgOpacity,
               );
             });
             if (_isStreaming) _sendOverlay();
@@ -592,7 +714,6 @@ class _StreamPageState extends State<StreamPage> {
 
         // Text style
         Row(children: [
-          // Bold toggle
           GestureDetector(
             onTap: () {
               setState(() {
@@ -614,17 +735,36 @@ class _StreamPageState extends State<StreamPage> {
                 fontSize: 13, fontWeight: FontWeight.bold)),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(child: _sizePills(_draftTextSize, (v) {
             _draftTextSize = v;
             if (_textOverlay != null) { _textOverlay!.textSize = v; if (_isStreaming) _sendOverlay(); }
           })),
         ]),
         const SizedBox(height: 8),
+        _sectionLabel('Color'),
         _colorRow(_draftTextColor, (v) {
           _draftTextColor = v;
           if (_textOverlay != null) { _textOverlay!.textColor = v; if (_isStreaming) _sendOverlay(); }
         }),
+        const SizedBox(height: 8),
+        _sectionLabel('Font'),
+        _fontPills(_draftTextFont, (v) {
+          _draftTextFont = v;
+          if (_textOverlay != null) { _textOverlay!.textFont = v; if (_isStreaming) _sendOverlay(); }
+        }),
+        const SizedBox(height: 8),
+        _sectionLabel('Background'),
+        _bgColorRow(_draftTextBgColor, _draftTextBgOpacity,
+          (v) {
+            _draftTextBgColor = v;
+            if (_textOverlay != null) { _textOverlay!.textBgColor = v; if (_isStreaming) _sendOverlay(); }
+          },
+          (v) {
+            _draftTextBgOpacity = v;
+            if (_textOverlay != null) { _textOverlay!.textBgOpacity = v; if (_isStreaming) _sendOverlay(); }
+          },
+        ),
 
         const Divider(height: 24),
 
@@ -639,6 +779,9 @@ class _StreamPageState extends State<StreamPage> {
               _tickerOverlay = OverlayItem(
                 type: 'ticker', content: t,
                 textColor: _draftTickerColor,
+                textFont: _draftTickerFont,
+                textBgColor: _draftTickerBgColor,
+                textBgOpacity: _draftTickerBgOpacity,
               );
             });
             if (_isStreaming) _sendTicker();
@@ -652,6 +795,7 @@ class _StreamPageState extends State<StreamPage> {
           ],
         ]),
         const SizedBox(height: 8),
+        _sectionLabel('Ticker Color'),
         _colorRow(_draftTickerColor, (v) {
           setState(() {
             _draftTickerColor = v;
@@ -659,6 +803,33 @@ class _StreamPageState extends State<StreamPage> {
           });
           if (_isStreaming && _tickerOverlay != null) _sendTicker();
         }),
+        const SizedBox(height: 8),
+        _sectionLabel('Ticker Font'),
+        _fontPills(_draftTickerFont, (v) {
+          setState(() {
+            _draftTickerFont = v;
+            if (_tickerOverlay != null) _tickerOverlay!.textFont = v;
+          });
+          if (_isStreaming && _tickerOverlay != null) _sendTicker();
+        }),
+        const SizedBox(height: 8),
+        _sectionLabel('Ticker Background'),
+        _bgColorRow(_draftTickerBgColor, _draftTickerBgOpacity,
+          (v) {
+            setState(() {
+              _draftTickerBgColor = v;
+              if (_tickerOverlay != null) _tickerOverlay!.textBgColor = v;
+            });
+            if (_isStreaming && _tickerOverlay != null) _sendTicker();
+          },
+          (v) {
+            setState(() {
+              _draftTickerBgOpacity = v;
+              if (_tickerOverlay != null) _tickerOverlay!.textBgOpacity = v;
+            });
+            if (_isStreaming && _tickerOverlay != null) _sendTicker();
+          },
+        ),
 
         const Divider(height: 24),
 
