@@ -74,7 +74,7 @@ class _StreamPageState extends State<StreamPage> {
   String _rtmpUrl = 'rtmps://a.rtmps.youtube.com/live2';
   String _audioMode = 'internal';
   String _orientation = 'landscape';
-  bool _cameraEnabled = false;
+  bool _cameraEnabled = true;
   String _cameraFacing = 'back';
   String _cameraMode = 'pip';
   int _bitrate = 2000;
