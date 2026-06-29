@@ -26,26 +26,26 @@ class FloatingButtonService : Service() {
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
     private var isPaused = false
-    private var isMuted = false
     private var isMicMuted = false
+    private var isMicOnlyMuted = false
 
     // 0 = OFF, 1 = Back ON, 2 = Front ON
     private var camState = 0
-    private var audioMode = "internal"  // internal or mic_internal
+    private var audioMode = "internal"
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private lateinit var pauseBtn: TextView
-    private lateinit var muteBtn: TextView
-    private lateinit var micBtn: TextView
+    private lateinit var audioBtn: TextView  // internal audio 🔊/🔇
+    private lateinit var micBtn: TextView    // mic only 🎤/🚫 (mic_internal mode साठी)
     private lateinit var camBtn: TextView
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         audioMode = intent?.getStringExtra("audioMode") ?: "internal"
-        // audioMode प्रमाणे micBtn show/hide
         if (::micBtn.isInitialized) {
-            micBtn.visibility = View.VISIBLE
+            // mic_internal mode असेल तरच 🎤 button दाखव
+            micBtn.visibility = if (audioMode == "mic_internal") View.VISIBLE else View.GONE
         }
         return START_NOT_STICKY
     }
@@ -72,25 +72,27 @@ class FloatingButtonService : Service() {
         }
 
         val logoView = makeLogoView()
-        pauseBtn = makeBtn("⏸", Color.argb(255, 200, 120, 0))
-        muteBtn  = makeBtn("🔊", Color.argb(255, 0, 100, 180))
-        micBtn   = makeBtn("🔊", Color.argb(255, 0, 130, 80))
-        camBtn   = makeBtn("📷", Color.argb(255, 80, 0, 150))
+        pauseBtn  = makeBtn("⏸", Color.argb(255, 200, 120, 0))
+        audioBtn  = makeBtn("🔊", Color.argb(255, 0, 100, 180))  // internal audio on/off
+        micBtn    = makeBtn("🎤", Color.argb(255, 0, 130, 80))   // mic on/off (mic_internal only)
+        camBtn    = makeBtn("📷", Color.argb(255, 80, 0, 150))
         val stopBtn = makeBtn("⏹", Color.argb(255, 200, 0, 0))
 
         container.addView(logoView)
         container.addView(spacer())
         container.addView(pauseBtn)
         container.addView(spacer())
-        container.addView(micBtn)  // internal=🔊/🔇, mic_internal=🔊/🔇 (mic only)
+        container.addView(audioBtn)  // नेहमी दिसतो
+        container.addView(spacer())
+        container.addView(micBtn)    // फक्त mic_internal ला दिसेल
         container.addView(spacer())
         container.addView(camBtn)
         container.addView(spacer())
         container.addView(stopBtn)
 
-        // audioMode प्रमाणे micBtn visibility set करणे
-        // (onStartCommand मध्ये update होईल)
-        micBtn.visibility = View.VISIBLE
+        // Default: micBtn hidden — onStartCommand मध्ये audioMode मिळाल्यावर update होईल
+        micBtn.visibility = View.GONE
+        updateCamBtn()
 
         floatingView = container
 
@@ -133,63 +135,51 @@ class FloatingButtonService : Service() {
                 pauseBtn.text = "▶"
                 setBtnColor(pauseBtn, Color.argb(255, 0, 160, 0))
             } else {
-                send("RESUME"); isPaused = false; isMuted = false; isMicMuted = false
+                send("RESUME"); isPaused = false
+                isMicMuted = false; isMicOnlyMuted = false
                 pauseBtn.text = "⏸"
                 setBtnColor(pauseBtn, Color.argb(255, 200, 120, 0))
-                micBtn.text = "🔊"; setBtnColor(micBtn, Color.argb(255, 0, 130, 80))
+                audioBtn.text = "🔊"; setBtnColor(audioBtn, Color.argb(255, 0, 100, 180))
+                micBtn.text = "🎤"; setBtnColor(micBtn, Color.argb(255, 0, 130, 80))
             }
         }
 
-        muteBtn.setOnClickListener {
-            if (!isMuted) {
-                send("MUTE"); isMuted = true
-                muteBtn.text = "🔇"; setBtnColor(muteBtn, Color.argb(255, 150, 0, 0))
-            } else {
-                send("UNMUTE"); isMuted = false
-                muteBtn.text = "🔊"; setBtnColor(muteBtn, Color.argb(255, 0, 100, 180))
-            }
-        }
-
-        micBtn.setOnClickListener {
+        // 🔊 — internal audio mute/unmute
+        audioBtn.setOnClickListener {
             if (!isMicMuted) {
                 send("MIC_MUTE"); isMicMuted = true
-                micBtn.text = "🔇"
-                setBtnColor(micBtn, Color.argb(255, 150, 0, 0))
+                audioBtn.text = "🔇"
+                setBtnColor(audioBtn, Color.argb(255, 150, 0, 0))
             } else {
                 send("MIC_UNMUTE"); isMicMuted = false
-                micBtn.text = "🔊"
+                audioBtn.text = "🔊"
+                setBtnColor(audioBtn, Color.argb(255, 0, 100, 180))
+            }
+        }
+
+        // 🎤 — mic only mute/unmute (mic_internal mode साठी)
+        micBtn.setOnClickListener {
+            if (!isMicOnlyMuted) {
+                send("MIC_ONLY_MUTE"); isMicOnlyMuted = true
+                micBtn.text = "🚫"
+                setBtnColor(micBtn, Color.argb(255, 150, 50, 0))
+            } else {
+                send("MIC_ONLY_UNMUTE"); isMicOnlyMuted = false
+                micBtn.text = "🎤"
                 setBtnColor(micBtn, Color.argb(255, 0, 130, 80))
             }
         }
 
-        // Tap cycle: OFF(📷) → Back(📷B) → Front(📷F) → OFF(📷)
         camBtn.setOnClickListener {
-            // Button disable करा duplicate tap टाळायला
             camBtn.isEnabled = false
-
             camState = (camState + 1) % 3
             updateCamBtn()
-
             when (camState) {
-                0 -> {
-                    // OFF
-                    send("CAMERA_OFF")
-                }
-                1 -> {
-                    // Back ON
-                    send("CAMERA_ON_BACK")
-                }
-                2 -> {
-                    // Front ON — switch (camera आधीच ON आहे)
-                    send("CAMERA_SWITCH")
-                }
+                0 -> send("CAMERA_OFF")
+                1 -> send("CAMERA_ON_BACK")
+                2 -> send("CAMERA_SWITCH")
             }
-
-            // 1.5 seconds नंतर button re-enable करा
-            // Camera session change होायला वेळ लागतो
-            mainHandler.postDelayed({
-                camBtn.isEnabled = true
-            }, 1500)
+            mainHandler.postDelayed({ camBtn.isEnabled = true }, 1500)
         }
 
         stopBtn.setOnClickListener {
@@ -218,9 +208,9 @@ class FloatingButtonService : Service() {
     }
 
     private fun send(action: String) {
-        val intent = Intent(applicationContext, StreamService::class.java)
-        intent.action = action
-        startService(intent)
+        startService(Intent(applicationContext, StreamService::class.java).apply {
+            this.action = action
+        })
     }
 
     private fun makeBtn(text: String, color: Int) = TextView(this).apply {
