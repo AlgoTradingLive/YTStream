@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class CameraOverlay(
     private val context: Context,
     private val onFrame: (Bitmap) -> Unit,
-    private val onCameraError: (() -> Unit)? = null  // ← नवीन: freeze/error झाल्यावर StreamService ला सांगण्यासाठी
+    private val onCameraError: (() -> Unit)? = null
 ) {
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
@@ -33,13 +33,25 @@ class CameraOverlay(
     private var processHandler: Handler? = null
     private val isRunning = AtomicBoolean(false)
     private val isProcessing = AtomicBoolean(false)
-    private val isFilterReady = AtomicBoolean(false)  // ← filter ready झाल्यावरच frames पाठव
+    private val isFilterReady = AtomicBoolean(false)
     private var imgW = 320
     private var imgH = 240
+
+    // ── नवीन: FaceFilterProcessor ─────────────────────────────────────────
+    private val faceFilter = FaceFilterProcessor(context)
 
     companion object {
         private const val TAG = "CameraOverlay"
     }
+
+    // ── Filter set करा (Flutter/StreamService मधून call करा) ───────────────
+    // filterName: "batman" | "superman" | "dog" | "none"
+    fun setFaceFilter(filterName: String) {
+        faceFilter.setFilter(filterName)
+        Log.d(TAG, "Face filter set: $filterName")
+    }
+
+    fun getCurrentFaceFilter(): String = faceFilter.getCurrentFilter()
 
     // YUV_420_888 → NV21 → JPEG → Bitmap
     private fun imageToNv21(image: Image): ByteArray {
@@ -99,7 +111,7 @@ class CameraOverlay(
 
     fun start(useFront: Boolean, isPortrait: Boolean = false) {
         if (isRunning.get()) stop()
-        isFilterReady.set(false)  // reset — filter ready नाही अजून
+        isFilterReady.set(false)
 
         imgW = if (isPortrait) 240 else 320
         imgH = if (isPortrait) 320 else 240
@@ -139,14 +151,21 @@ class CameraOverlay(
 
             processHandler?.post {
                 try {
-                    if (isRunning.get() && isFilterReady.get()) {  // ← filter ready असेल तरच
+                    if (isRunning.get() && isFilterReady.get()) {
                         val nv21 = imageToNv21(image)
                         image.close()
                         val bitmap = nv21ToBitmap(nv21, imgW, imgH)
                         if (bitmap != null) {
                             val copy = bitmap.copy(Bitmap.Config.ARGB_8888, true)
                             bitmap.recycle()
-                            onFrame(copy)
+
+                            // ── नवीन: face filter apply करा ──────────────
+                            // faceFilter.process() bitmap घेतो, mask overlay करतो, result देतो
+                            // filter "none" असेल तर directly onFrame ला जातो
+                            val filtered = faceFilter.process(copy)
+                            onFrame(filtered)
+                            // ──────────────────────────────────────────────
+
                         }
                     } else {
                         image.close()
@@ -188,7 +207,6 @@ class CameraOverlay(
                                 override fun onConfigureFailed(s: CameraCaptureSession) {
                                     Log.e(TAG, "Configure failed")
                                     isRunning.set(false)
-                                    // ← Configure fail झाला तर पण callback
                                     onCameraError?.invoke()
                                 }
                             }, cameraHandler)
@@ -198,12 +216,11 @@ class CameraOverlay(
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
-                    // ← Single app share मध्ये हेच trigger होतं!
                     Log.w(TAG, "Camera disconnected (likely interrupted by screen share)")
                     camera.close()
                     cameraDevice = null
                     isRunning.set(false)
-                    onCameraError?.invoke()  // StreamService ला सांग → restart होईल
+                    onCameraError?.invoke()
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
@@ -211,7 +228,7 @@ class CameraOverlay(
                     camera.close()
                     cameraDevice = null
                     isRunning.set(false)
-                    onCameraError?.invoke()  // StreamService ला सांग → restart होईल
+                    onCameraError?.invoke()
                 }
             }, cameraHandler)
         } catch (e: SecurityException) {
@@ -224,7 +241,7 @@ class CameraOverlay(
     fun stop() {
         isRunning.set(false)
         isProcessing.set(false)
-        isFilterReady.set(false)  // reset
+        isFilterReady.set(false)
         try { captureSession?.stopRepeating() } catch (_: Exception) {}
         try { captureSession?.close() } catch (_: Exception) {}
         try { cameraDevice?.close() } catch (_: Exception) {}
@@ -234,6 +251,10 @@ class CameraOverlay(
         cameraDevice = null; captureSession = null; imageReader = null
         cameraThread = null; cameraHandler = null
         processThread = null; processHandler = null
+
+        // ── नवीन: FaceFilterProcessor release ─────────────────────────────
+        faceFilter.release()
+
         Log.d(TAG, "Camera stopped")
     }
 
