@@ -135,7 +135,7 @@ class _StreamPageState extends State<StreamPage> {
       _rtmpUrl = p.getString('rtmp_url') ?? 'rtmps://a.rtmps.youtube.com/live2';
       _audioMode = p.getString('audio_mode') ?? 'internal';
       _orientation = p.getString('orientation') ?? 'landscape';
-      _cameraEnabled = p.getBool('camera_enabled') ?? false;
+      _cameraEnabled = p.getBool('camera_enabled') ?? _cameraEnabled = false;
       _cameraFacing = p.getString('camera_facing') ?? 'back';
       _cameraMode = p.getString('camera_mode') ?? 'pip';
       _bitrate = p.getInt('bitrate') ?? 2000;
@@ -152,7 +152,7 @@ class _StreamPageState extends State<StreamPage> {
     await p.setString('rtmp_url', _rtmpUrl);
     await p.setString('audio_mode', _audioMode);
     await p.setString('orientation', _orientation);
-    await p.setBool('camera_enabled', _cameraEnabled);
+    
     await p.setString('camera_facing', _cameraFacing);
     await p.setString('camera_mode', _cameraMode);
     await p.setInt('bitrate', _bitrate);
