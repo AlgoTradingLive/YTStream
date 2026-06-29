@@ -645,7 +645,8 @@ class StreamService : Service(), ConnectChecker {
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        val vOk = rtmpDisplay!!.prepareVideo(w, h, savedBitrate)
+        val rotation = if (savedOrientation == "portrait") 90 else 0
+val vOk = rtmpDisplay!!.prepareVideo(w, h, savedBitrate, false, rotation)
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true), Triple(128_000, 44100, false),
