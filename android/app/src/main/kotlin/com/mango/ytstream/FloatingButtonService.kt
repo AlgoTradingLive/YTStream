@@ -31,6 +31,7 @@ class FloatingButtonService : Service() {
 
     // 0 = OFF, 1 = Back ON, 2 = Front ON
     private var camState = 0
+    private var audioMode = "internal"  // internal or mic_internal
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private lateinit var pauseBtn: TextView
@@ -39,6 +40,15 @@ class FloatingButtonService : Service() {
     private lateinit var camBtn: TextView
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        audioMode = intent?.getStringExtra("audioMode") ?: "internal"
+        // audioMode प्रमाणे micBtn show/hide
+        if (::micBtn.isInitialized) {
+            micBtn.visibility = if (audioMode == "mic_internal") View.VISIBLE else View.GONE
+        }
+        return START_NOT_STICKY
+    }
 
     private fun updateCamBtn() {
         when (camState) {
@@ -64,7 +74,7 @@ class FloatingButtonService : Service() {
         val logoView = makeLogoView()
         pauseBtn = makeBtn("⏸", Color.argb(255, 200, 120, 0))
         muteBtn  = makeBtn("🔊", Color.argb(255, 0, 100, 180))
-        micBtn   = makeBtn("🎤", Color.argb(255, 0, 130, 80))
+        micBtn   = makeBtn("🔊", Color.argb(255, 0, 130, 80))
         camBtn   = makeBtn("📷", Color.argb(255, 80, 0, 150))
         val stopBtn = makeBtn("⏹", Color.argb(255, 200, 0, 0))
 
@@ -72,13 +82,15 @@ class FloatingButtonService : Service() {
         container.addView(spacer())
         container.addView(pauseBtn)
         container.addView(spacer())
-        container.addView(muteBtn)
-        container.addView(spacer())
-        container.addView(micBtn)
+        container.addView(micBtn)  // internal=🔊/🔇, mic_internal=🔊/🔇 (mic only)
         container.addView(spacer())
         container.addView(camBtn)
         container.addView(spacer())
         container.addView(stopBtn)
+
+        // audioMode प्रमाणे micBtn visibility set करणे
+        // (onStartCommand मध्ये update होईल)
+        micBtn.visibility = View.VISIBLE
 
         floatingView = container
 
@@ -124,8 +136,7 @@ class FloatingButtonService : Service() {
                 send("RESUME"); isPaused = false; isMuted = false; isMicMuted = false
                 pauseBtn.text = "⏸"
                 setBtnColor(pauseBtn, Color.argb(255, 200, 120, 0))
-                muteBtn.text = "🔊"; setBtnColor(muteBtn, Color.argb(255, 0, 100, 180))
-                micBtn.text = "🎤"; setBtnColor(micBtn, Color.argb(255, 0, 130, 80))
+                micBtn.text = "🔊"; setBtnColor(micBtn, Color.argb(255, 0, 130, 80))
             }
         }
 
@@ -142,10 +153,12 @@ class FloatingButtonService : Service() {
         micBtn.setOnClickListener {
             if (!isMicMuted) {
                 send("MIC_MUTE"); isMicMuted = true
-                micBtn.text = "🚫"; setBtnColor(micBtn, Color.argb(255, 150, 50, 0))
+                micBtn.text = "🔇"
+                setBtnColor(micBtn, Color.argb(255, 150, 0, 0))
             } else {
                 send("MIC_UNMUTE"); isMicMuted = false
-                micBtn.text = "🎤"; setBtnColor(micBtn, Color.argb(255, 0, 130, 80))
+                micBtn.text = "🔊"
+                setBtnColor(micBtn, Color.argb(255, 0, 130, 80))
             }
         }
 

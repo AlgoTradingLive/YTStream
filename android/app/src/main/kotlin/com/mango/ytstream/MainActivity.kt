@@ -197,8 +197,11 @@ class MainActivity : FlutterActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
                     else startService(intent)
                     isStreaming = true
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this))
-                        startService(Intent(this, FloatingButtonService::class.java))
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)) {
+                        startService(Intent(this, FloatingButtonService::class.java).apply {
+                            putExtra("audioMode", pendingAudioMode ?: "internal")
+                        })
+                    }
                     pendingResult?.success(null)
                 } else {
                     pendingResult?.error("CANCELLED", "Permission denied", null)
