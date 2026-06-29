@@ -645,8 +645,11 @@ class StreamService : Service(), ConnectChecker {
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
 
-        val rotation = if (savedOrientation == "portrait") 90 else 0
-val vOk = rtmpDisplay!!.prepareVideo(w, h, savedBitrate, false, rotation)
+        // Portrait साठी w आणि h swap करणे
+val vW2 = if (savedOrientation == "portrait" && w > h) h else w
+val vH2 = if (savedOrientation == "portrait" && w > h) w else h
+val vOk = rtmpDisplay!!.prepareVideo(vW2, vH2, savedBitrate)
+        val vOk = rtmpDisplay!!.prepareVideo(w, h, savedBitrate)
         var aOk = false
         for ((br, sr, st) in listOf(
             Triple(128_000, 44100, true), Triple(128_000, 44100, false),
