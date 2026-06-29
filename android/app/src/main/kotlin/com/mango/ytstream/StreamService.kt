@@ -397,11 +397,23 @@ class StreamService : Service(), ConnectChecker {
                 return START_NOT_STICKY
             }
             "MIC_MUTE" -> {
-                (genericStream?.audioSource as? MixAudioSource)?.mute()
+                // Mic बंद → फक्त internal audio
+                val src = genericStream?.audioSource
+                if (src is MixAudioSource) {
+                    src.muteMicrophone(true)
+                } else {
+                    (src as? MicrophoneSource)?.mute()
+                }
                 return START_NOT_STICKY
             }
             "MIC_UNMUTE" -> {
-                (genericStream?.audioSource as? MixAudioSource)?.unMute()
+                // Mic चालू → internal + mic दोन्ही
+                val src = genericStream?.audioSource
+                if (src is MixAudioSource) {
+                    src.muteMicrophone(false)
+                } else {
+                    (src as? MicrophoneSource)?.unMute()
+                }
                 return START_NOT_STICKY
             }
             "SET_VOICE" -> {
@@ -623,9 +635,14 @@ class StreamService : Service(), ConnectChecker {
         )
 
         if (vOk && aOk) {
+            // MixAudioSource — internal + mic दोन्ही handle करतो
+            // mic mute केलं की आपोआप internal only राहतो
             val mix = MixAudioSource(mp)
             mixAudioSource = mix
             genericStream!!.changeAudioSource(mix)
+            // Default: mic mute — फक्त internal audio जातो
+            // User mic enable करेल तेव्हा unmute होईल
+            mix.muteMicrophone(true)
             genericStream!!.startStream(url)
             mainHandler.postDelayed({
                 applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY, lastTextBold, lastTextSize, lastTextColor, lastImageScale, lastTextFont, lastTextBgColor, lastTextBgOpacity)
@@ -643,6 +660,13 @@ class StreamService : Service(), ConnectChecker {
         rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
         rtmpDisplay!!.glInterface.setForceRender(true)
         rtmpDisplay!!.setIntentResult(rc, d)
+
+        // Portrait fix — RtmpDisplay ला orientation explicitly सांगणे
+        if (savedOrientation == "portrait") {
+            rtmpDisplay!!.setOrientation(90)
+        } else {
+            rtmpDisplay!!.setOrientation(0)
+        }
 
         val vOk = rtmpDisplay!!.prepareVideo(w, h, savedBitrate)
         var aOk = false
