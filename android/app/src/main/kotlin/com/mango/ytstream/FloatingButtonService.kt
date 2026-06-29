@@ -45,7 +45,7 @@ class FloatingButtonService : Service() {
         audioMode = intent?.getStringExtra("audioMode") ?: "internal"
         // audioMode प्रमाणे micBtn show/hide
         if (::micBtn.isInitialized) {
-            micBtn.visibility = if (audioMode == "mic_internal") View.VISIBLE else View.GONE
+            micBtn.visibility = View.VISIBLE
         }
         return START_NOT_STICKY
     }
