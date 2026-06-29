@@ -586,10 +586,15 @@ class StreamService : Service(), ConnectChecker {
 
         mainHandler.post {
             try {
-                if (audioMode == "mic_internal" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startMixedAudio(savedFullUrl, vW, vH, resultCode, data)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    if (audioMode == "mic_internal") {
+                        startMixedAudio(savedFullUrl, vW, vH, resultCode, data)
+                    } else {
+                        startInternalOnly(savedFullUrl, vW, vH, resultCode, data)
+                    }
                 } else {
-                    startInternalOnly(savedFullUrl, vW, vH, resultCode, data)
+                    notify("Android 10+ required for streaming")
+                    releaseWakeLock(); stopSelf()
                 }
             } catch (e: Exception) {
                 notify("Error: ${e.message}")
@@ -640,36 +645,44 @@ class StreamService : Service(), ConnectChecker {
         }
     }
 
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
     private fun startInternalOnly(url: String, w: Int, h: Int, rc: Int, d: Intent) {
-        rtmpDisplay = RtmpDisplay(applicationContext, true, this@StreamService)
-        rtmpDisplay!!.glInterface.setForceRender(true)
-        rtmpDisplay!!.setIntentResult(rc, d)
+        // RtmpDisplay portrait handle करत नाही → GenericStream वापरतो
+        // SilenceAudioSource = mic नाही, फक्त internal audio MixAudioSource ने
+        val mp: MediaProjection = getMediaProjection(rc, d)
 
-        // Portrait साठी w आणि h swap करणे
-rtmpDisplay!!.setIntentResult(rc, d)
-if (savedOrientation == "portrait") {
-    rtmpDisplay!!.getGlInterface().setRotation(0)
-}
-        val vOk = rtmpDisplay!!.prepareVideo(w, h, savedBitrate)
-        var aOk = false
-        for ((br, sr, st) in listOf(
-            Triple(128_000, 44100, true), Triple(128_000, 44100, false),
-            Triple(64_000, 44100, true), Triple(64_000, 32000, true),
-        )) {
-            aOk = try { rtmpDisplay!!.prepareInternalAudio(br, sr, st, false, false) }
-                  catch (_: Exception) { false }
-            if (aOk) break
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            mp.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() { stopStreaming() }
+            }, mainHandler)
         }
-        if (!aOk) aOk = rtmpDisplay!!.prepareAudio(64_000, 44100, true)
+
+        val screen = ScreenSource(applicationContext, mp)
+        genericStream = GenericStream(applicationContext, this, screen,
+            SilenceAudioSource()).apply {
+            getGlInterface().setForceRender(true)
+        }
+
+        val vOk = genericStream!!.prepareVideo(w, h, savedBitrate)
+        val aOk = genericStream!!.prepareAudio(
+            sampleRate = 44100, isStereo = true, bitrate = 128_000,
+            echoCanceler = false, noiseSuppressor = false
+        )
 
         if (vOk && aOk) {
-            rtmpDisplay!!.startStream(url)
+            // Internal audio — MixAudioSource mic mute करून internal only
+            val mix = MixAudioSource(mp)
+            mixAudioSource = mix
+            mix.mute()  // mic mute → फक्त internal audio
+            genericStream!!.changeAudioSource(mix)
+            genericStream!!.startStream(url)
             mainHandler.postDelayed({
                 applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY, lastTextBold, lastTextSize, lastTextColor, lastImageScale, lastTextFont, lastTextBgColor, lastTextBgOpacity)
                 if (cameraEnabled) setupCamera()
             }, 1000)
         } else {
             notify("Prepare failed V:$vOk A:$aOk")
+            try { mp.stop() } catch (_: Exception) {}
             releaseWakeLock(); stopSelf()
         }
     }
