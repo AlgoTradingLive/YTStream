@@ -42,7 +42,7 @@ class FloatingButtonService : Service() {
 
     private fun updateCamBtn() {
         when (camState) {
-            0 -> { camBtn.text = "📷"; setBtnColor(camBtn, Color.argb(255, 80, 0, 150)) }
+            0 -> { camBtn.text = "📷❌"; setBtnColor(camBtn, Color.argb(255, 80, 0, 150)) }
             1 -> { camBtn.text = "📷B"; setBtnColor(camBtn, Color.argb(255, 0, 130, 0)) }
             2 -> { camBtn.text = "📷F"; setBtnColor(camBtn, Color.argb(255, 0, 100, 200)) }
         }
