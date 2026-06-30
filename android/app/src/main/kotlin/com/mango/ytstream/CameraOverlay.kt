@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
+import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.hardware.camera2.CameraCaptureSession
@@ -36,6 +37,8 @@ class CameraOverlay(
     private val isFilterReady = AtomicBoolean(false)  // ← filter ready झाल्यावरच frames पाठव
     private var imgW = 320
     private var imgH = 240
+    private var sensorOrientation = 90
+    private var isFrontCameraActive = false
 
     companion object {
         private const val TAG = "CameraOverlay"
@@ -86,7 +89,18 @@ class CameraOverlay(
             val out = ByteArrayOutputStream()
             yuv.compressToJpeg(Rect(0, 0, w, h), 75, out)
             val bytes = out.toByteArray()
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            val raw = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+
+            // Camera sensor rotation apply करणे — आडवं दिसण्याचा फिक्स
+            val matrix = Matrix()
+            matrix.postRotate(sensorOrientation.toFloat())
+            if (isFrontCameraActive) {
+                // Front camera mirror होतो — flip करणे
+                matrix.postScale(-1f, 1f)
+            }
+            val rotated = Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true)
+            if (rotated != raw) raw.recycle()
+            rotated
         } catch (e: Exception) {
             Log.e(TAG, "nv21ToBitmap error: ${e.message}")
             null
@@ -127,6 +141,15 @@ class CameraOverlay(
         }
 
         if (cameraId == null) { Log.e(TAG, "No camera found"); return }
+
+        isFrontCameraActive = useFront
+        try {
+            sensorOrientation = manager.getCameraCharacteristics(cameraId)
+                .get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+        } catch (e: Exception) {
+            sensorOrientation = 90
+        }
+        Log.d(TAG, "Sensor orientation: $sensorOrientation, front: $isFrontCameraActive")
 
         imageReader = ImageReader.newInstance(imgW, imgH, ImageFormat.YUV_420_888, 2)
         imageReader!!.setOnImageAvailableListener({ reader ->

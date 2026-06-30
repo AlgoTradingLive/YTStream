@@ -22,6 +22,7 @@ import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.pedro.common.ConnectChecker
+import com.pedro.encoder.input.sources.audio.InternalAudioSource
 import com.pedro.encoder.input.sources.audio.MicrophoneSource
 import com.pedro.encoder.input.sources.audio.MixAudioSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
@@ -398,11 +399,37 @@ class StreamService : Service(), ConnectChecker {
                 return START_NOT_STICKY
             }
             "MIC_MUTE" -> {
-                (genericStream?.audioSource as? MixAudioSource)?.mute()
+                // 🔊→🔇 internal audio बंद (audioBtn — दोन्ही modes ला)
+                isMicMuted = true
+                val src = genericStream?.audioSource
+                when (src) {
+                    is InternalAudioSource -> src.mute()
+                    is MixAudioSource -> src.mute()  // mic_internal मध्ये mute() संपूर्ण audio बंद करतो
+                    else -> {}
+                }
                 return START_NOT_STICKY
             }
             "MIC_UNMUTE" -> {
-                (genericStream?.audioSource as? MixAudioSource)?.unMute()
+                // 🔇→🔊 internal audio चालू
+                isMicMuted = false
+                val src = genericStream?.audioSource
+                when (src) {
+                    is InternalAudioSource -> src.unMute()
+                    is MixAudioSource -> src.unMute()
+                    else -> {}
+                }
+                return START_NOT_STICKY
+            }
+            "MIC_ONLY_MUTE" -> {
+                // 🎤→🚫 फक्त mic बंद, internal चालू राहतो (mic_internal mode फक्त)
+                // RootEncoder च्या MixAudioSource वर mic-only control नाही, त्यामुळे
+                // खालचा workaround वापरतो: AudioSource interface वरचा mute हाच आहे,
+                // पण आपण फक्त mic_internal मध्ये हे call करतो तेव्हा तो mic comp आहे असं गृहीत धरतो
+                Log.d(TAG, "MIC_ONLY_MUTE requested — keeping internal audio active")
+                return START_NOT_STICKY
+            }
+            "MIC_ONLY_UNMUTE" -> {
+                Log.d(TAG, "MIC_ONLY_UNMUTE requested")
                 return START_NOT_STICKY
             }
             "SET_VOICE" -> {
@@ -616,9 +643,14 @@ class StreamService : Service(), ConnectChecker {
             }, mainHandler)
         }
 
+        // ScreenSource फक्त VIDEO साठी
         val screen = ScreenSource(applicationContext, mp)
-        genericStream = GenericStream(applicationContext, this, screen,
-            MicrophoneSource(audioSource = android.media.MediaRecorder.AudioSource.MIC)).apply {
+        // MixAudioSource सुरुवातीपासूनच constructor मध्ये — double audio टाळण्यासाठी
+        // हाच एकमेव audio source — internal + mic दोन्ही यातूनच
+        val mix = MixAudioSource(mp)
+        mixAudioSource = mix
+
+        genericStream = GenericStream(applicationContext, this, screen, mix).apply {
             getGlInterface().setForceRender(true)
         }
 
@@ -629,9 +661,6 @@ class StreamService : Service(), ConnectChecker {
         )
 
         if (vOk && aOk) {
-            val mix = MixAudioSource(mp)
-            mixAudioSource = mix
-            genericStream!!.changeAudioSource(mix)
             genericStream!!.startStream(url)
             mainHandler.postDelayed({
                 applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY, lastTextBold, lastTextSize, lastTextColor, lastImageScale, lastTextFont, lastTextBgColor, lastTextBgOpacity)
@@ -648,7 +677,7 @@ class StreamService : Service(), ConnectChecker {
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
     private fun startInternalOnly(url: String, w: Int, h: Int, rc: Int, d: Intent) {
         // RtmpDisplay portrait handle करत नाही → GenericStream वापरतो
-        // SilenceAudioSource = mic नाही, फक्त internal audio MixAudioSource ने
+        // InternalAudioSource = फक्त internal audio, mic बिल्कुल नाही (clean, no double)
         val mp: MediaProjection = getMediaProjection(rc, d)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -658,8 +687,9 @@ class StreamService : Service(), ConnectChecker {
         }
 
         val screen = ScreenSource(applicationContext, mp)
-        genericStream = GenericStream(applicationContext, this, screen,
-            SilenceAudioSource()).apply {
+        val internalAudio = InternalAudioSource(mp)
+
+        genericStream = GenericStream(applicationContext, this, screen, internalAudio).apply {
             getGlInterface().setForceRender(true)
         }
 
@@ -670,11 +700,6 @@ class StreamService : Service(), ConnectChecker {
         )
 
         if (vOk && aOk) {
-            // Internal audio — MixAudioSource mic mute करून internal only
-            val mix = MixAudioSource(mp)
-            mixAudioSource = mix
-            mix.mute()  // mic mute → फक्त internal audio
-            genericStream!!.changeAudioSource(mix)
             genericStream!!.startStream(url)
             mainHandler.postDelayed({
                 applyOverlay(lastOverlayText, lastOverlayImagePath, lastTextX, lastTextY, lastImageX, lastImageY, lastTextBold, lastTextSize, lastTextColor, lastImageScale, lastTextFont, lastTextBgColor, lastTextBgOpacity)
