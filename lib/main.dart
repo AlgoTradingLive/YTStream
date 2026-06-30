@@ -1078,18 +1078,18 @@ class _StreamPageState extends State<StreamPage> {
         }
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
           color: isSelected ? red : card,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(9),
           border: Border.all(color: isSelected ? red : border),
         ),
         child: Column(children: [
-          Text(emoji, style: const TextStyle(fontSize: 20)),
-          const SizedBox(height: 2),
+          Text(emoji, style: const TextStyle(fontSize: 16)),
+          const SizedBox(height: 1),
           Text(label, style: TextStyle(
             color: isSelected ? Colors.white : text,
-            fontSize: 11, fontWeight: FontWeight.w600,
+            fontSize: 9, fontWeight: FontWeight.w600,
           )),
         ]),
       ),
@@ -1208,17 +1208,31 @@ class _StreamPageState extends State<StreamPage> {
           ),
           const SizedBox(height: 20),
 
-          // 5.5 Face Filters (Batman/Superman/Dog)
+          // 5.5 Face Filters (10 filters — Batman, Superman, Dog, Anonymous, Robot, Tribal, Web-slinger, Tiger, Holi, Galaxy)
           _sectionLabel('Face Filter'),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(children: [
               _faceFilterBtn('batman', '🦇', 'Batman'),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               _faceFilterBtn('superman', '⚡', 'Superman'),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               _faceFilterBtn('dog', '🐶', 'Dog'),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
+              _faceFilterBtn('anonymous', '🎭', 'Anonymous'),
+              const SizedBox(width: 6),
+              _faceFilterBtn('robot', '🤖', 'Robot'),
+              const SizedBox(width: 6),
+              _faceFilterBtn('tribal', '✨', 'Tribal'),
+              const SizedBox(width: 6),
+              _faceFilterBtn('webslinger', '🕸️', 'Web'),
+              const SizedBox(width: 6),
+              _faceFilterBtn('tiger', '🐯', 'Tiger'),
+              const SizedBox(width: 6),
+              _faceFilterBtn('holi', '🎨', 'Holi'),
+              const SizedBox(width: 6),
+              _faceFilterBtn('galaxy', '🌌', 'Galaxy'),
+              const SizedBox(width: 6),
               _faceFilterBtn('none', '🚫', 'None'),
             ]),
           ),
