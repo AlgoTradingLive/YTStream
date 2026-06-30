@@ -77,6 +77,7 @@ class _StreamPageState extends State<StreamPage> {
   bool _cameraEnabled = true;
   String _cameraFacing = 'back';
   String _cameraMode = 'pip';
+  String _faceFilter = 'none';  // ← नवीन: सध्याचा face filter
   int _bitrate = 2000;
   bool _showAdvanced = false;
 
@@ -1065,6 +1066,36 @@ class _StreamPageState extends State<StreamPage> {
     ],
   );
 
+  Widget _faceFilterBtn(String value, String emoji, String label) {
+    final bool isSelected = _faceFilter == value;
+    return GestureDetector(
+      onTap: () async {
+        setState(() => _faceFilter = value);
+        try {
+          await platform.invokeMethod('setFaceFilter', {'filterName': value});
+        } catch (e) {
+          // channel fail झाला तरी app crash होऊ नये
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? red : card,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: isSelected ? red : border),
+        ),
+        child: Column(children: [
+          Text(emoji, style: const TextStyle(fontSize: 20)),
+          const SizedBox(height: 2),
+          Text(label, style: TextStyle(
+            color: isSelected ? Colors.white : text,
+            fontSize: 11, fontWeight: FontWeight.w600,
+          )),
+        ]),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1174,6 +1205,22 @@ class _StreamPageState extends State<StreamPage> {
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
               ]),
             ),
+          ),
+          const SizedBox(height: 20),
+
+          // 5.5 Face Filters (Batman/Superman/Dog)
+          _sectionLabel('Face Filter'),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              _faceFilterBtn('batman', '🦇', 'Batman'),
+              const SizedBox(width: 8),
+              _faceFilterBtn('superman', '⚡', 'Superman'),
+              const SizedBox(width: 8),
+              _faceFilterBtn('dog', '🐶', 'Dog'),
+              const SizedBox(width: 8),
+              _faceFilterBtn('none', '🚫', 'None'),
+            ]),
           ),
           const SizedBox(height: 20),
 
