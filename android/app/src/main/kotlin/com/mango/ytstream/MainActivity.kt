@@ -121,11 +121,11 @@ class MainActivity : FlutterActivity() {
     private fun checkPermissionsAndStart() {
         val perms = mutableListOf<String>()
 
-        if (pendingAudioMode == "mic_internal") {
-            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-                perms.add(android.Manifest.permission.RECORD_AUDIO)
-            }
+        if (pendingAudioMode == "mic_internal" || pendingAudioMode == "internal") {
+    if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+        != PackageManager.PERMISSION_GRANTED) {
+        perms.add(android.Manifest.permission.RECORD_AUDIO)
+    }
         }
 
         if (pendingCameraEnabled) {
