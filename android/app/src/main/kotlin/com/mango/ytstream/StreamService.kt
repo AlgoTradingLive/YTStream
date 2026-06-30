@@ -55,6 +55,7 @@ class StreamService : Service(), ConnectChecker {
     private var cameraFacing = "back"
     private var cameraMode = "pip"
     private var cameraOverlay: CameraOverlay? = null
+    private var lastFaceFilter: String = "none"  // ← नवीन: सध्याचा face filter लक्षात ठेवण्यासाठी
     private var cameraFilter: ImageObjectFilterRender? = null
     private var textFilter: TextObjectFilterRender? = null
     private var imageFilter: ImageObjectFilterRender? = null
@@ -193,6 +194,9 @@ class StreamService : Service(), ConnectChecker {
             )
 
             cameraOverlay!!.start(useFront, savedOrientation == "portrait")
+
+            // साठवलेला face filter परत apply करा — restart नंतरही filter राहावा म्हणून
+            cameraOverlay?.setFaceFilter(lastFaceFilter)
 
             // GL filter add झाल्यावर 400ms wait → मग frames accept करायला सांग
             // यामुळे black screen येणार नाही restart नंतर
@@ -409,6 +413,16 @@ class StreamService : Service(), ConnectChecker {
                 val mode = intent.getStringExtra("voiceMode") ?: "normal"
                 currentVoiceMode = mode
                 applyVoiceEffect(mode)
+                return START_NOT_STICKY
+            }
+            "SET_FACE_FILTER" -> {
+                // Flutter मधून येतो — "batman" | "superman" | "dog" | "none"
+                val filterName = intent.getStringExtra("filterName") ?: "none"
+                mainHandler.post {
+                    lastFaceFilter = filterName
+                    cameraOverlay?.setFaceFilter(filterName)
+                    Log.d(TAG, "Face filter set to: $filterName")
+                }
                 return START_NOT_STICKY
             }
             "CAMERA_ON_BACK" -> {

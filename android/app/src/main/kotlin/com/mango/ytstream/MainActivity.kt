@@ -103,6 +103,16 @@ class MainActivity : FlutterActivity() {
                     stopStreamService()
                     result.success(null)
                 }
+                "setFaceFilter" -> {
+                    // Flutter मधून येतो: "batman" | "superman" | "dog" | "none"
+                    val filterName = call.argument<String>("filterName") ?: "none"
+                    val i = Intent(this, StreamService::class.java).apply {
+                        action = "SET_FACE_FILTER"
+                        putExtra("filterName", filterName)
+                    }
+                    startService(i)
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
