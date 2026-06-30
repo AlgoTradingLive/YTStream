@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
+import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.hardware.camera2.CameraCaptureSession
@@ -99,7 +100,9 @@ class CameraOverlay(
         return try {
             val yuv = YuvImage(nv21, ImageFormat.NV21, w, h, null)
             val out = ByteArrayOutputStream()
-                        val raw = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            yuv.compressToJpeg(Rect(0, 0, w, h), 75, out)
+            val bytes = out.toByteArray()
+            val raw = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
  
             // Camera sensor rotation apply करणे — आडवं दिसण्याचा फिक्स
             val matrix = Matrix()
