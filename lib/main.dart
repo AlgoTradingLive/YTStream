@@ -1208,16 +1208,16 @@ class _StreamPageState extends State<StreamPage> {
           ),
           const SizedBox(height: 20),
 
-          // 5.5 Face Filters (10 filters — Batman, Superman, Dog, Anonymous, Robot, Tribal, Web-slinger, Tiger, Holi, Galaxy)
+          // 5.5 Face Filters
           _sectionLabel('Face Filter'),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(children: [
-              _faceFilterBtn('batman', '🦇', 'Batman'),
+              _faceFilterBtn('galaxy_blue', '🔵', 'Galaxy Blue'),
               const SizedBox(width: 6),
-              _faceFilterBtn('superman', '⚡', 'Superman'),
+              _faceFilterBtn('galaxy_green', '🟢', 'Galaxy Green'),
               const SizedBox(width: 6),
-              _faceFilterBtn('dog', '🐶', 'Dog'),
+              _faceFilterBtn('galaxy_red', '🔴', 'Galaxy Red'),
               const SizedBox(width: 6),
               _faceFilterBtn('anonymous', '🎭', 'Anonymous'),
               const SizedBox(width: 6),
