@@ -48,6 +48,20 @@ class StreamService : Service(), ConnectChecker {
     private var screenReceiver: BroadcastReceiver? = null
     private var savedResultCode = -1
     private var savedData: Intent? = null
+
+    // ── Adaptive bitrate variables ─────────────────────────────────────────
+    // Network कमी असेल तर bitrate automatically कमी होतो, सुधारलं तर वाढतो
+    private var maxBitrate = 4_000_000        // 4 Mbps — maximum
+    private var currentBitrate = 4_000_000    // सध्याचा bitrate
+    private var lowBitrateCount = 0           // किती वेळा कमी bitrate आला
+    private var highBitrateCount = 0          // किती वेळा चांगला bitrate आला
+    private val BITRATE_LEVELS = listOf(      // Bitrate levels — step by step कमी/जास्त होतो
+        4_000_000,  // 4 Mbps  — excellent
+        2_500_000,  // 2.5 Mbps — good
+        1_500_000,  // 1.5 Mbps — average
+        800_000,    // 800 Kbps — poor
+        400_000     // 400 Kbps — very poor (stream टिकवण्यासाठी minimum)
+    )
     private var savedFullUrl = ""
     private var savedOrientation = "landscape"
     private var currentVoiceMode = "normal"
@@ -548,7 +562,9 @@ class StreamService : Service(), ConnectChecker {
         cameraFacing = intent.getStringExtra("cameraFacing") ?: "back"
         cameraMode = intent.getStringExtra("cameraMode") ?: "pip"
         isSingleAppShare = intent.getBooleanExtra("singleAppShare", false)
-        savedBitrate = intent.getIntExtra("bitrate", 2_000_000)
+        savedBitrate = intent.getIntExtra("bitrate", 4_000_000)  // default 4Mbps
+        maxBitrate = savedBitrate
+        currentBitrate = savedBitrate
         savedScreenWidth = intent.getIntExtra("screenWidth", 0)
         savedScreenHeight = intent.getIntExtra("screenHeight", 0)
 
@@ -721,6 +737,43 @@ class StreamService : Service(), ConnectChecker {
 
     override fun onNewBitrate(bitrate: Long) {
         mainHandler.post { mainActivity?.notifyFlutter("onBitrateUpdate", "${bitrate / 1000}") }
+
+        // ── Adaptive bitrate logic ─────────────────────────────────────────
+        // measured bitrate हे network upload speed दाखवतो
+        // currentBitrate च्या 60% पेक्षा कमी आलं → network कमकुवत → bitrate कमी करा
+        // currentBitrate च्या 85% पेक्षा जास्त राहिलं → network चांगलं → bitrate वाढवा
+        val measured = bitrate.toInt()
+        val currentIndex = BITRATE_LEVELS.indexOf(currentBitrate).takeIf { it >= 0 } ?: 0
+
+        if (measured < currentBitrate * 0.60) {
+            // Network कमी — count वाढव
+            lowBitrateCount++
+            highBitrateCount = 0
+            // 3 वेळा सतत कमी आलं तरच bitrate कमी कर — temporary dip ला react नाही
+            if (lowBitrateCount >= 3 && currentIndex < BITRATE_LEVELS.size - 1) {
+                currentBitrate = BITRATE_LEVELS[currentIndex + 1]
+                lowBitrateCount = 0
+                genericStream?.setVideoBitrateOnFly(currentBitrate)
+                Log.d(TAG, "Adaptive: bitrate DOWN → ${currentBitrate / 1000} Kbps")
+                mainActivity?.notifyFlutter("onBitrateAdapted", "${currentBitrate / 1000}")
+            }
+        } else if (measured > currentBitrate * 0.85) {
+            // Network चांगलं — count वाढव
+            highBitrateCount++
+            lowBitrateCount = 0
+            // 8 वेळा सतत चांगलं राहिलं तरच वाढव — network stable झाल्यावरच
+            if (highBitrateCount >= 8 && currentIndex > 0) {
+                currentBitrate = BITRATE_LEVELS[currentIndex - 1]
+                highBitrateCount = 0
+                genericStream?.setVideoBitrateOnFly(currentBitrate)
+                Log.d(TAG, "Adaptive: bitrate UP → ${currentBitrate / 1000} Kbps")
+                mainActivity?.notifyFlutter("onBitrateAdapted", "${currentBitrate / 1000}")
+            }
+        } else {
+            // Normal range — counts reset
+            lowBitrateCount = 0
+            highBitrateCount = 0
+        }
     }
 
     override fun onDisconnect() {
